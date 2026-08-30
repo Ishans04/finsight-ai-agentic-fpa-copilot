@@ -172,13 +172,11 @@ Owner
 
 **📸 Project Preview**
 
-## 📸 Project Preview
-
 ### Executive FP&A Dashboard
 
 ![Executive FP&A Dashboard](executive-dashboard.png)
 
-### Business Unit Variance
+### Business Unit Budget Variance
 
 ![Business Unit Variance](business-unit-variance.png)
 
@@ -190,7 +188,13 @@ Owner
 
 ![Revenue Forecast](revenue-forecast.png)
 
-The complete analysis and demonstrations are available in the Kaggle notebook.
+### 🤖 AI Finance Copilot
+
+![AI Finance Copilot](ai-copilot.png)
+
+The system accepts natural-language finance questions and routes them to the appropriate analytical workflow before generating a structured management recommendation.
+
+## 🔗 Project Links
 
 ### Kaggle Notebook
 
