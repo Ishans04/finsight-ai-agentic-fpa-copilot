@@ -172,13 +172,29 @@ Owner
 
 **📸 Project Preview**
 
+## 📸 Project Preview
+
+### Executive FP&A Dashboard
+
+![Executive FP&A Dashboard](executive-dashboard.png)
+
+### Business Unit Variance
+
+![Business Unit Variance](business-unit-variance.png)
+
+### ML-Based Financial Anomaly Detection
+
+![Financial Anomaly Detection](anomaly-detection.png)
+
+### Revenue Forecast
+
+![Revenue Forecast](revenue-forecast.png)
+
 The complete analysis and demonstrations are available in the Kaggle notebook.
 
-Kaggle
+### Kaggle Notebook
 
-FinSight AI — Agentic FP&A & ERP Analytics Copilot
-
-[Open Kaggle Notebook]([url](https://www.kaggle.com/code/isharma04/finsight-ai-agentic-fpa-copilot))
+[Open FinSight AI on Kaggle](https://www.kaggle.com/code/isharma04/finsight-ai-agentic-fpa-copilot)
 
 **📁 Repository Structure**
 finsight-ai-agentic-fpa-copilot/
