@@ -3,122 +3,175 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
+
 from pathlib import Path
 from sklearn.ensemble import IsolationForest
 from sklearn.linear_model import LinearRegression
 
 
 # ============================================================
-# FINSIGHT AI
-# Agentic FP&A & ERP Intelligence
+# PAGE CONFIG
 # ============================================================
 
 st.set_page_config(
     page_title="FinSight AI",
     page_icon="📊",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
 
 # ============================================================
-# CUSTOM UI
+# CUSTOM CSS
 # ============================================================
 
-st.markdown("""
-<style>
+st.markdown(
+    """
+    <style>
+        .main {
+            background-color: #f7f9fc;
+        }
 
-.block-container {
-    padding-top: 1.2rem;
-    padding-bottom: 2rem;
-    max-width: 1500px;
-}
+        .block-container {
+            padding-top: 1.5rem;
+            padding-bottom: 2rem;
+        }
 
-[data-testid="stSidebar"] {
-    border-right: 1px solid rgba(128,128,128,0.2);
-}
+        .hero {
+            padding: 1.4rem 1.6rem;
+            border-radius: 16px;
+            background: linear-gradient(
+                135deg,
+                #0f172a 0%,
+                #1e3a5f 50%,
+                #0f766e 100%
+            );
+            color: white;
+            margin-bottom: 1.2rem;
+        }
 
-[data-testid="stMetric"] {
-    border: 1px solid rgba(128,128,128,0.18);
-    border-radius: 12px;
-    padding: 14px;
-    background: rgba(128,128,128,0.04);
-}
+        .hero h1 {
+            color: white;
+            margin-bottom: 0.2rem;
+            font-size: 2.2rem;
+        }
 
-.hero {
-    padding: 22px 26px;
-    border-radius: 16px;
-    margin-bottom: 20px;
-    border: 1px solid rgba(128,128,128,0.2);
-    background: linear-gradient(
-        135deg,
-        rgba(80,80,180,0.12),
-        rgba(0,160,160,0.08)
-    );
-}
+        .hero p {
+            color: #dbeafe;
+            margin-bottom: 0;
+            font-size: 1rem;
+        }
 
-.hero h1 {
-    margin: 0;
-    font-size: 2.3rem;
-}
+        .section-card {
+            padding: 1rem 1.2rem;
+            border-radius: 12px;
+            background: white;
+            border: 1px solid #e5e7eb;
+            margin-bottom: 1rem;
+        }
 
-.hero p {
-    margin-top: 8px;
-    opacity: 0.75;
-    font-size: 1rem;
-}
+        .insight-box {
+            padding: 1rem;
+            border-radius: 12px;
+            background: #eff6ff;
+            border-left: 5px solid #2563eb;
+            margin-bottom: 0.8rem;
+        }
 
-.section-title {
-    font-size: 1.35rem;
-    font-weight: 700;
-    margin-top: 15px;
-    margin-bottom: 10px;
-}
+        .action-box {
+            padding: 1rem;
+            border-radius: 12px;
+            background: #f8fafc;
+            border: 1px solid #cbd5e1;
+            margin-bottom: 0.8rem;
+        }
 
-.insight-box {
-    padding: 18px;
-    border-radius: 12px;
-    border: 1px solid rgba(128,128,128,0.22);
-    background: rgba(128,128,128,0.05);
-    margin-bottom: 12px;
-}
+        .priority-p0 {
+            border-left: 5px solid #dc2626;
+        }
 
-.small-muted {
-    opacity: 0.65;
-    font-size: 0.85rem;
-}
+        .priority-p1 {
+            border-left: 5px solid #f59e0b;
+        }
 
-.action-box {
-    padding: 15px;
-    border-radius: 10px;
-    border: 1px solid rgba(128,128,128,0.2);
-    margin-bottom: 10px;
-}
+        .priority-p2 {
+            border-left: 5px solid #16a34a;
+        }
 
-</style>
-""", unsafe_allow_html=True)
+        div[data-testid="stMetric"] {
+            background: white;
+            border: 1px solid #e5e7eb;
+            padding: 0.8rem;
+            border-radius: 12px;
+        }
+
+        .small-muted {
+            color: #64748b;
+            font-size: 0.85rem;
+        }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 
 # ============================================================
-# HELPER FUNCTIONS
+# CONSTANTS
+# ============================================================
+
+REQUIRED_COLUMNS = [
+    "Date",
+    "Business Unit",
+    "Department",
+    "Account / Cost Category",
+    "Budget",
+    "Actual",
+    "Revenue",
+]
+
+DISPLAY_COLUMNS = [
+    "Transaction ID",
+    "Date",
+    "Business Unit",
+    "Department",
+    "Account / Cost Category",
+    "Budget",
+    "Actual",
+    "Revenue",
+    "Variance",
+    "Variance %",
+    "Profit",
+    "Anomaly Flag",
+    "Anomaly",
+]
+
+
+# ============================================================
+# FORMATTING FUNCTIONS
 # ============================================================
 
 def money(value):
+    """Compact Indian currency formatting."""
     if pd.isna(value):
         return "₹0"
 
     value = float(value)
+    abs_value = abs(value)
 
-    if abs(value) >= 1e7:
-        return f"₹{value / 1e7:.2f} Cr"
+    if abs_value >= 1e7:
+        return f"₹{value / 1e7:,.2f} Cr"
 
-    if abs(value) >= 1e5:
-        return f"₹{value / 1e5:.2f} L"
+    if abs_value >= 1e5:
+        return f"₹{value / 1e5:,.2f} L"
+
+    if abs_value >= 1e3:
+        return f"₹{value / 1e3:,.1f} K"
 
     return f"₹{value:,.0f}"
 
 
 def money_full(value):
+    """Full Indian currency formatting."""
     if pd.isna(value):
         return "₹0"
 
@@ -126,76 +179,299 @@ def money_full(value):
 
 
 def pct(value):
+    """Percentage formatting."""
     if pd.isna(value):
         return "0.00%"
 
-    return f"{float(value):.2f}%"
+    return f"{float(value):,.2f}%"
 
 
-def format_table(df):
-    return df.style.format({
-        col: "₹{:,.0f}"
-        for col in df.columns
-        if col in [
-            "Revenue",
-            "Budget",
-            "Actual",
-            "Profit",
-            "Variance",
-            "Cash Inflow",
-            "Cash Outflow",
-            "Closing Cash"
-        ]
-    })
+def safe_divide(numerator, denominator):
+    if denominator == 0:
+        return 0
+
+    return numerator / denominator
 
 
 # ============================================================
-# LOAD DATA
+# COLUMN NORMALIZATION
+# ============================================================
+
+def clean_column_name(column):
+    """
+    Normalize a column name so variations such as:
+    account
+    Account
+    ACCOUNT
+    Account / Cost Category
+    GL Account
+    Cost Category
+    can be detected reliably.
+    """
+
+    text = str(column).strip().lower()
+
+    replacements = {
+        "&": "and",
+        "/": " ",
+        "-": " ",
+        "_": " ",
+        ".": " ",
+        "(": " ",
+        ")": " ",
+    }
+
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+
+    text = " ".join(text.split())
+
+    return text
+
+
+def normalize_columns(df):
+    """
+    Convert common ERP / finance column names into FinSight's
+    internal canonical schema.
+    """
+
+    alias_map = {
+        "Transaction ID": [
+            "transaction id",
+            "transaction",
+            "transaction number",
+            "transaction no",
+            "transaction_id",
+            "id",
+        ],
+
+        "Date": [
+            "date",
+            "transaction date",
+            "posting date",
+            "posting_date",
+            "document date",
+            "document_date",
+            "period",
+            "month",
+        ],
+
+        "Business Unit": [
+            "business unit",
+            "business_unit",
+            "bu",
+            "businessunit",
+            "entity",
+            "company",
+            "company code",
+            "company_code",
+        ],
+
+        "Department": [
+            "department",
+            "dept",
+            "department name",
+            "department_name",
+        ],
+
+        "Account / Cost Category": [
+            "account",
+            "account name",
+            "account_name",
+            "account cost category",
+            "account / cost category",
+            "cost category",
+            "cost_category",
+            "cost center category",
+            "gl account",
+            "gl_account",
+            "gl",
+            "expense category",
+            "expense_category",
+            "category",
+        ],
+
+        "Budget": [
+            "budget",
+            "budget amount",
+            "budget_amount",
+            "planned cost",
+            "planned_cost",
+            "plan",
+        ],
+
+        "Actual": [
+            "actual",
+            "actual amount",
+            "actual_amount",
+            "actual cost",
+            "actual_cost",
+        ],
+
+        "Revenue": [
+            "revenue",
+            "sales",
+            "sales revenue",
+            "income",
+            "revenue amount",
+            "revenue_amount",
+        ],
+
+        "Variance": [
+            "variance",
+            "budget variance",
+            "budget_variance",
+            "cost variance",
+            "cost_variance",
+        ],
+
+        "Variance %": [
+            "variance %",
+            "variance percent",
+            "variance percentage",
+            "variance_pct",
+            "variance percentage %",
+        ],
+
+        "Profit": [
+            "profit",
+            "profit amount",
+            "profit_amount",
+            "operating profit",
+            "operating_profit",
+        ],
+
+        "Anomaly Flag": [
+            "anomaly flag",
+            "anomaly_flag",
+            "anomaly indicator",
+            "anomaly_indicator",
+        ],
+
+        "Anomaly": [
+            "anomaly",
+            "anomaly type",
+            "anomaly_type",
+            "risk flag",
+            "risk_flag",
+        ],
+    }
+
+    normalized_lookup = {}
+
+    for original in df.columns:
+        normalized_lookup[clean_column_name(original)] = original
+
+    rename_dict = {}
+
+    for canonical, aliases in alias_map.items():
+        canonical_key = clean_column_name(canonical)
+
+        if canonical_key in normalized_lookup:
+            rename_dict[normalized_lookup[canonical_key]] = canonical
+            continue
+
+        for alias in aliases:
+            alias_key = clean_column_name(alias)
+
+            if alias_key in normalized_lookup:
+                rename_dict[normalized_lookup[alias_key]] = canonical
+                break
+
+    df = df.rename(columns=rename_dict)
+
+    return df
+
+
+# ============================================================
+# DATA ENGINE
 # ============================================================
 
 @st.cache_data
-def load_data():
+def load_demo_data():
+    """
+    Load FinSight's bundled synthetic ERP dataset.
+    """
 
-    possible_files = [
+    possible_paths = [
         Path("synthetic_erp_financials.csv"),
-        Path("data/synthetic_erp_financials.csv")
+        Path("data/synthetic_erp_financials.csv"),
     ]
 
     file_path = None
 
-    for path in possible_files:
+    for path in possible_paths:
         if path.exists():
             file_path = path
             break
 
     if file_path is None:
-        return pd.DataFrame()
+        return None, "Demo dataset not found."
 
-    data = pd.read_csv(file_path)
+    try:
+        df = pd.read_csv(file_path)
 
-    rename_map = {
-        "transaction_id": "Transaction ID",
-        "date": "Date",
-        "business_unit": "Business Unit",
-        "department": "Department",
-        "account": "Account / Cost Category",
-        "budget": "Budget",
-        "actual": "Actual",
-        "revenue": "Revenue",
-        "variance": "Variance",
-        "variance_pct": "Variance %",
-        "profit": "Profit",
-        "anomaly_flag": "Anomaly Flag",
-        "anomaly": "Anomaly"
-    }
+        df = normalize_columns(df)
 
-    data = data.rename(columns=rename_map)
+        return prepare_data(df)
 
-    if "Date" in data.columns:
-        data["Date"] = pd.to_datetime(
-            data["Date"],
-            errors="coerce"
+    except Exception as exc:
+        return None, f"Unable to load demo dataset: {exc}"
+
+
+@st.cache_data
+def load_uploaded_data(file_bytes):
+    """
+    Load uploaded CSV.
+    """
+
+    try:
+        from io import BytesIO
+
+        df = pd.read_csv(BytesIO(file_bytes))
+
+        df = normalize_columns(df)
+
+        return prepare_data(df)
+
+    except Exception as exc:
+        return None, f"Unable to read uploaded CSV: {exc}"
+
+
+def prepare_data(df):
+    """
+    Validate and prepare the dataset for all FinSight modules.
+    """
+
+    df = df.copy()
+
+    missing = [
+        column
+        for column in REQUIRED_COLUMNS
+        if column not in df.columns
+    ]
+
+    if missing:
+        return None, (
+            "Missing required columns: "
+            + ", ".join(missing)
+            + ". "
+            + "Detected columns: "
+            + ", ".join(map(str, df.columns))
         )
+
+    # --------------------------------------------------------
+    # Date
+    # --------------------------------------------------------
+
+    df["Date"] = pd.to_datetime(
+        df["Date"],
+        errors="coerce"
+    )
+
+    # --------------------------------------------------------
+    # Numeric fields
+    # --------------------------------------------------------
 
     numeric_columns = [
         "Budget",
@@ -203,51 +479,611 @@ def load_data():
         "Revenue",
         "Variance",
         "Variance %",
-        "Profit"
+        "Profit",
+        "Anomaly Flag",
     ]
 
-    for col in numeric_columns:
-        if col in data.columns:
-            data[col] = pd.to_numeric(
-                data[col],
+    for column in numeric_columns:
+        if column in df.columns:
+            df[column] = pd.to_numeric(
+                df[column],
                 errors="coerce"
             )
 
-    if "Variance" not in data.columns:
-        data["Variance"] = (
-            data["Actual"] -
-            data["Budget"]
+    # --------------------------------------------------------
+    # Derived financial metrics
+    # --------------------------------------------------------
+
+    if "Variance" not in df.columns:
+        df["Variance"] = df["Actual"] - df["Budget"]
+
+    if "Variance %" not in df.columns:
+        df["Variance %"] = np.where(
+            df["Budget"].abs() > 0,
+            (df["Actual"] - df["Budget"]) / df["Budget"].abs() * 100,
+            0,
         )
 
-    if "Variance %" not in data.columns:
-        data["Variance %"] = np.where(
-            data["Budget"] != 0,
-            data["Variance"] /
-            data["Budget"] * 100,
+    if "Profit" not in df.columns:
+        df["Profit"] = df["Revenue"] - df["Actual"]
+
+    if "Anomaly Flag" not in df.columns:
+        df["Anomaly Flag"] = 0
+
+    if "Anomaly" not in df.columns:
+        df["Anomaly"] = "Normal"
+
+    # --------------------------------------------------------
+    # Text fields
+    # --------------------------------------------------------
+
+    text_columns = [
+        "Business Unit",
+        "Department",
+        "Account / Cost Category",
+    ]
+
+    for column in text_columns:
+        df[column] = (
+            df[column]
+            .fillna("Unknown")
+            .astype(str)
+            .str.strip()
+        )
+
+    # --------------------------------------------------------
+    # Transaction ID
+    # --------------------------------------------------------
+
+    if "Transaction ID" not in df.columns:
+        df["Transaction ID"] = [
+            f"TXN-{i + 1:05d}"
+            for i in range(len(df))
+        ]
+
+    # --------------------------------------------------------
+    # Remove unusable dates
+    # --------------------------------------------------------
+
+    df = df.dropna(subset=["Date"]).copy()
+
+    df = df.sort_values("Date").reset_index(drop=True)
+
+    return df, None
+
+
+# ============================================================
+# ANALYTICS
+# ============================================================
+
+def calculate_kpis(df):
+
+    revenue = df["Revenue"].sum()
+    actual = df["Actual"].sum()
+    budget = df["Budget"].sum()
+    variance = actual - budget
+    profit = df["Profit"].sum()
+
+    margin = safe_divide(
+        profit,
+        revenue
+    ) * 100
+
+    return {
+        "revenue": revenue,
+        "actual": actual,
+        "budget": budget,
+        "variance": variance,
+        "profit": profit,
+        "margin": margin,
+    }
+
+
+def monthly_summary(df):
+
+    monthly = (
+        df.assign(
+            Month=df["Date"].dt.to_period("M").astype(str)
+        )
+        .groupby("Month")
+        .agg(
+            Revenue=("Revenue", "sum"),
+            Budget=("Budget", "sum"),
+            Actual=("Actual", "sum"),
+            Profit=("Profit", "sum"),
+        )
+        .reset_index()
+    )
+
+    monthly["Variance"] = (
+        monthly["Actual"] - monthly["Budget"]
+    )
+
+    monthly["Margin %"] = np.where(
+        monthly["Revenue"] != 0,
+        monthly["Profit"] / monthly["Revenue"] * 100,
+        0,
+    )
+
+    return monthly
+
+
+def business_unit_summary(df):
+
+    result = (
+        df.groupby("Business Unit")
+        .agg(
+            Revenue=("Revenue", "sum"),
+            Budget=("Budget", "sum"),
+            Actual=("Actual", "sum"),
+            Profit=("Profit", "sum"),
+            Transactions=("Transaction ID", "count"),
+        )
+        .reset_index()
+    )
+
+    result["Variance"] = (
+        result["Actual"] - result["Budget"]
+    )
+
+    result["Variance %"] = np.where(
+        result["Budget"] != 0,
+        result["Variance"] / result["Budget"].abs() * 100,
+        0,
+    )
+
+    result["Margin %"] = np.where(
+        result["Revenue"] != 0,
+        result["Profit"] / result["Revenue"] * 100,
+        0,
+    )
+
+    return result.sort_values(
+        "Variance",
+        ascending=False
+    )
+
+
+def department_summary(df):
+
+    result = (
+        df.groupby("Department")
+        .agg(
+            Revenue=("Revenue", "sum"),
+            Budget=("Budget", "sum"),
+            Actual=("Actual", "sum"),
+            Profit=("Profit", "sum"),
+            Transactions=("Transaction ID", "count"),
+        )
+        .reset_index()
+    )
+
+    result["Variance"] = (
+        result["Actual"] - result["Budget"]
+    )
+
+    result["Variance %"] = np.where(
+        result["Budget"] != 0,
+        result["Variance"] / result["Budget"].abs() * 100,
+        0,
+    )
+
+    return result.sort_values(
+        "Variance",
+        ascending=False
+    )
+
+
+def category_summary(df):
+
+    result = (
+        df.groupby("Account / Cost Category")
+        .agg(
+            Budget=("Budget", "sum"),
+            Actual=("Actual", "sum"),
+            Revenue=("Revenue", "sum"),
+            Transactions=("Transaction ID", "count"),
+        )
+        .reset_index()
+    )
+
+    result["Variance"] = (
+        result["Actual"] - result["Budget"]
+    )
+
+    result["Variance %"] = np.where(
+        result["Budget"] != 0,
+        result["Variance"] / result["Budget"].abs() * 100,
+        0,
+    )
+
+    return result.sort_values(
+        "Variance",
+        ascending=False
+    )
+
+
+def detect_anomalies(df):
+
+    result = df.copy()
+
+    if len(result) < 10:
+        result["Anomaly Flag"] = 0
+        result["Anomaly"] = "Normal"
+        return result
+
+    features = result[
+        ["Budget", "Actual", "Revenue", "Variance"]
+    ].fillna(0)
+
+    try:
+        model = IsolationForest(
+            contamination=0.05,
+            random_state=42
+        )
+
+        predictions = model.fit_predict(features)
+
+        result["Anomaly Flag"] = np.where(
+            predictions == -1,
+            1,
             0
         )
 
-    if "Profit" not in data.columns:
-        data["Profit"] = (
-            data["Revenue"] -
-            data["Actual"]
+        result["Anomaly"] = np.where(
+            result["Anomaly Flag"] == 1,
+            "Potential Anomaly",
+            "Normal"
         )
 
-    return data
+    except Exception:
+        result["Anomaly Flag"] = 0
+        result["Anomaly"] = "Normal"
+
+    return result
 
 
 # ============================================================
-# FILE UPLOAD
+# AI CFO ENGINE
 # ============================================================
 
-default_df = load_data()
+def generate_ai_cfo_insights(df):
+
+    insights = []
+
+    kpis = calculate_kpis(df)
+
+    bu = business_unit_summary(df)
+    cat = category_summary(df)
+
+    # --------------------------------------------------------
+    # Cost variance
+    # --------------------------------------------------------
+
+    unfavorable = cat[cat["Variance"] > 0]
+
+    if not unfavorable.empty:
+
+        top_category = unfavorable.iloc[0]
+
+        insights.append({
+            "Finding": (
+                f"{top_category['Account / Cost Category']} "
+                f"is the largest unfavorable cost driver."
+            ),
+            "Evidence": (
+                f"Variance of {money_full(top_category['Variance'])} "
+                f"({pct(top_category['Variance %'])})."
+            ),
+            "Business Impact": (
+                "Continued overspend may reduce operating margin "
+                "and increase forecast pressure."
+            ),
+            "Management Action": (
+                "Review vendor, utilization, staffing and discretionary "
+                "spend within this cost category."
+            ),
+            "Priority": "P0",
+            "Owner": "Finance / Business Owner",
+        })
+
+    # --------------------------------------------------------
+    # Business unit
+    # --------------------------------------------------------
+
+    unfavorable_bu = bu[bu["Variance"] > 0]
+
+    if not unfavorable_bu.empty:
+
+        top_bu = unfavorable_bu.iloc[0]
+
+        insights.append({
+            "Finding": (
+                f"{top_bu['Business Unit']} has the highest "
+                "unfavorable budget variance."
+            ),
+            "Evidence": (
+                f"Actual cost exceeds budget by "
+                f"{money_full(top_bu['Variance'])}."
+            ),
+            "Business Impact": (
+                "The business unit is creating disproportionate "
+                "cost pressure versus plan."
+            ),
+            "Management Action": (
+                "Perform a BU-level budget review and identify "
+                "controllable versus committed costs."
+            ),
+            "Priority": "P1",
+            "Owner": "BU Finance Partner",
+        })
+
+    # --------------------------------------------------------
+    # Margin
+    # --------------------------------------------------------
+
+    if kpis["margin"] < 50:
+
+        insights.append({
+            "Finding": "Operating margin is below the 50% management threshold.",
+            "Evidence": f"Current modeled margin is {pct(kpis['margin'])}.",
+            "Business Impact": (
+                "Lower margin can reduce profitability and "
+                "limit investment capacity."
+            ),
+            "Management Action": (
+                "Review pricing, revenue mix and major cost drivers."
+            ),
+            "Priority": "P1",
+            "Owner": "FP&A / Business Leadership",
+        })
+
+    # --------------------------------------------------------
+    # Anomalies
+    # --------------------------------------------------------
+
+    anomaly_count = int(
+        df["Anomaly Flag"].sum()
+    )
+
+    if anomaly_count > 0:
+
+        insights.append({
+            "Finding": (
+                f"{anomaly_count} transaction(s) require anomaly review."
+            ),
+            "Evidence": (
+                "Isolation Forest / source anomaly indicators "
+                "identified unusual financial behavior."
+            ),
+            "Business Impact": (
+                "Unusual transactions can distort forecasts, "
+                "budgets and management reporting."
+            ),
+            "Management Action": (
+                "Investigate the flagged transactions and validate "
+                "business justification."
+            ),
+            "Priority": "P1",
+            "Owner": "Finance Controller",
+        })
+
+    return pd.DataFrame(insights)
+
+
+# ============================================================
+# CASH FLOW ENGINE
+# ============================================================
+
+def build_cash_flow(df):
+
+    monthly = monthly_summary(df).copy()
+
+    if monthly.empty:
+        return monthly
+
+    monthly["Cash Inflow"] = (
+        monthly["Revenue"] * 0.85
+    )
+
+    monthly["Cash Outflow"] = (
+        monthly["Actual"] * 0.80
+    )
+
+    opening_cash = 1_00_00_000
+
+    closing_values = []
+    opening_values = []
+
+    current_cash = opening_cash
+
+    for _, row in monthly.iterrows():
+
+        opening_values.append(current_cash)
+
+        current_cash = (
+            current_cash
+            + row["Cash Inflow"]
+            - row["Cash Outflow"]
+        )
+
+        closing_values.append(current_cash)
+
+    monthly["Opening Cash"] = opening_values
+    monthly["Closing Cash"] = closing_values
+
+    monthly["Net Cash Flow"] = (
+        monthly["Cash Inflow"]
+        - monthly["Cash Outflow"]
+    )
+
+    monthly["Liquidity Status"] = np.where(
+        monthly["Closing Cash"] < 0,
+        "Critical",
+        np.where(
+            monthly["Closing Cash"] < opening_cash * 0.50,
+            "Watch",
+            "Healthy"
+        )
+    )
+
+    return monthly
+
+
+# ============================================================
+# FORECAST ENGINE
+# ============================================================
+
+def build_forecast(df, periods=6):
+
+    monthly = monthly_summary(df)
+
+    if len(monthly) < 3:
+        return None
+
+    monthly = monthly.copy()
+
+    monthly["Period Number"] = np.arange(
+        len(monthly)
+    )
+
+    future_periods = np.arange(
+        len(monthly),
+        len(monthly) + periods
+    )
+
+    # Revenue model
+    revenue_model = LinearRegression()
+
+    revenue_model.fit(
+        monthly[["Period Number"]],
+        monthly["Revenue"]
+    )
+
+    revenue_forecast = revenue_model.predict(
+        pd.DataFrame(
+            {"Period Number": future_periods}
+        )
+    )
+
+    # Cost model
+    cost_model = LinearRegression()
+
+    cost_model.fit(
+        monthly[["Period Number"]],
+        monthly["Actual"]
+    )
+
+    cost_forecast = cost_model.predict(
+        pd.DataFrame(
+            {"Period Number": future_periods}
+        )
+    )
+
+    last_date = pd.to_datetime(
+        monthly["Month"].iloc[-1]
+    )
+
+    future_dates = pd.date_range(
+        start=last_date + pd.offsets.MonthBegin(1),
+        periods=periods,
+        freq="MS"
+    )
+
+    forecast = pd.DataFrame({
+        "Month": future_dates.strftime("%Y-%m"),
+        "Base Revenue": revenue_forecast,
+        "Base Cost": cost_forecast,
+    })
+
+    forecast["Base Profit"] = (
+        forecast["Base Revenue"]
+        - forecast["Base Cost"]
+    )
+
+    forecast["Optimistic Revenue"] = (
+        forecast["Base Revenue"] * 1.08
+    )
+
+    forecast["Optimistic Cost"] = (
+        forecast["Base Cost"] * 0.97
+    )
+
+    forecast["Optimistic Profit"] = (
+        forecast["Optimistic Revenue"]
+        - forecast["Optimistic Cost"]
+    )
+
+    forecast["Downside Revenue"] = (
+        forecast["Base Revenue"] * 0.92
+    )
+
+    forecast["Downside Cost"] = (
+        forecast["Base Cost"] * 1.08
+    )
+
+    forecast["Downside Profit"] = (
+        forecast["Downside Revenue"]
+        - forecast["Downside Cost"]
+    )
+
+    return forecast
+
+
+# ============================================================
+# ACTION CENTER
+# ============================================================
+
+def build_action_center(df):
+
+    actions = []
+
+    category = category_summary(df)
+
+    for _, row in category.head(8).iterrows():
+
+        variance = row["Variance"]
+
+        if variance <= 0:
+            continue
+
+        if row["Variance %"] >= 15:
+            priority = "P0"
+        elif row["Variance %"] >= 8:
+            priority = "P1"
+        else:
+            priority = "P2"
+
+        actions.append({
+            "Priority": priority,
+            "Area": row["Account / Cost Category"],
+            "Issue": "Unfavorable cost variance",
+            "Financial Impact": money_full(variance),
+            "Recommended Action": (
+                "Review spend against budget and identify "
+                "controllable cost opportunities."
+            ),
+            "Owner": "FP&A / Cost Owner",
+            "Status": "Open",
+        })
+
+    return pd.DataFrame(actions)
+
+
+# ============================================================
+# SIDEBAR
+# ============================================================
 
 with st.sidebar:
 
-    st.markdown("## 📊 FinSight AI")
-
-    st.caption(
-        "Agentic FP&A & ERP Intelligence"
+    st.markdown(
+        """
+        <h2>📊 FinSight AI</h2>
+        <div class="small-muted">
+        Agentic FP&A & ERP Intelligence
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
     st.divider()
@@ -257,86 +1093,44 @@ with st.sidebar:
     uploaded_file = st.file_uploader(
         "Upload ERP CSV",
         type=["csv"],
-        help=(
-            "Upload a CSV containing financial "
-            "transactions."
-        )
+        help="Upload a CSV containing financial ERP-style data.",
     )
 
     if uploaded_file is not None:
 
-        df = pd.read_csv(uploaded_file)
+        df, error = load_uploaded_data(
+            uploaded_file.getvalue()
+        )
 
-        rename_map = {
-            "transaction_id": "Transaction ID",
-            "date": "Date",
-            "business_unit": "Business Unit",
-            "department": "Department",
-            "account": "Account / Cost Category",
-            "budget": "Budget",
-            "actual": "Actual",
-            "revenue": "Revenue",
-            "variance": "Variance",
-            "variance_pct": "Variance %",
-            "profit": "Profit",
-            "anomaly_flag": "Anomaly Flag",
-            "anomaly": "Anomaly"
-        }
-
-        df = df.rename(columns=rename_map)
-
-        if "Date" in df.columns:
-            df["Date"] = pd.to_datetime(
-                df["Date"],
-                errors="coerce"
-            )
-
-        if "Variance" not in df.columns:
-            df["Variance"] = (
-                df["Actual"] -
-                df["Budget"]
-            )
-
-        if "Variance %" not in df.columns:
-            df["Variance %"] = np.where(
-                df["Budget"] != 0,
-                df["Variance"] /
-                df["Budget"] * 100,
-                0
-            )
-
-        if "Profit" not in df.columns:
-            df["Profit"] = (
-                df["Revenue"] -
-                df["Actual"]
-            )
-
-        data_source = "Uploaded ERP Data"
+        data_source = "Uploaded ERP CSV"
 
     else:
 
-        df = default_df.copy()
+        df, error = load_demo_data()
+
         data_source = "FinSight Demo ERP Data"
 
-    st.success(data_source)
+    st.caption(data_source)
 
     st.divider()
 
     st.markdown("### Navigation")
 
-    page = st.radio(
+    pages = [
+        "🏠 Executive Dashboard",
+        "📊 FP&A Performance",
+        "⚠️ Risk & Anomalies",
+        "💵 Cash & Liquidity",
+        "📈 Forecast & Scenarios",
+        "🤖 AI CFO",
+        "🎯 Action Center",
+        "🔎 Data Explorer",
+    ]
+
+    selected_page = st.radio(
         "Go to",
-        [
-            "🏠 Executive Dashboard",
-            "📊 FP&A Performance",
-            "⚠️ Risk & Anomalies",
-            "💰 Cash & Liquidity",
-            "🔮 Forecast & Scenarios",
-            "🤖 AI CFO",
-            "🎯 Action Center",
-            "📁 Data Explorer"
-        ],
-        label_visibility="collapsed"
+        pages,
+        label_visibility="collapsed",
     )
 
 
@@ -344,37 +1138,28 @@ with st.sidebar:
 # DATA VALIDATION
 # ============================================================
 
-if df.empty:
+if df is None:
 
-    st.error(
-        "No financial dataset found. "
-        "Upload an ERP CSV to continue."
-    )
+    st.error(error)
 
-    st.stop()
+    st.markdown(
+        """
+        ### Required ERP fields
 
+        Your CSV should contain at least:
 
-required_columns = [
-    "Date",
-    "Business Unit",
-    "Department",
-    "Account / Cost Category",
-    "Budget",
-    "Actual",
-    "Revenue",
-    "Profit"
-]
+        - Date
+        - Business Unit
+        - Department
+        - Account / Cost Category
+        - Budget
+        - Actual
+        - Revenue
 
-missing_columns = [
-    col for col in required_columns
-    if col not in df.columns
-]
-
-if missing_columns:
-
-    st.error(
-        "Missing required columns: "
-        + ", ".join(missing_columns)
+        FinSight automatically recognizes common variations such as
+        `business_unit`, `department`, `account`, `budget`, `actual`,
+        `revenue`, `cost_category`, `GL Account`, etc.
+        """
     )
 
     st.stop()
@@ -390,511 +1175,138 @@ with st.sidebar:
 
     st.markdown("### Global Filters")
 
-    selected_bu = st.multiselect(
-        "Business Unit",
-        sorted(
-            df["Business Unit"]
-            .dropna()
-            .unique()
-        ),
-        default=[]
+    bu_options = ["All"] + sorted(
+        df["Business Unit"].dropna().unique().tolist()
     )
 
-    selected_dept = st.multiselect(
+    selected_bu = st.selectbox(
+        "Business Unit",
+        bu_options,
+    )
+
+    dept_options = ["All"] + sorted(
+        df["Department"].dropna().unique().tolist()
+    )
+
+    selected_department = st.selectbox(
         "Department",
-        sorted(
-            df["Department"]
-            .dropna()
-            .unique()
-        ),
-        default=[]
+        dept_options,
     )
 
 
 filtered_df = df.copy()
 
-if selected_bu:
+if selected_bu != "All":
+
     filtered_df = filtered_df[
-        filtered_df["Business Unit"].isin(
-            selected_bu
-        )
+        filtered_df["Business Unit"] == selected_bu
     ]
 
-if selected_dept:
+if selected_department != "All":
+
     filtered_df = filtered_df[
-        filtered_df["Department"].isin(
-            selected_dept
-        )
+        filtered_df["Department"] == selected_department
     ]
 
 
 # ============================================================
-# COMMON METRICS
+# HERO
 # ============================================================
 
-revenue = filtered_df["Revenue"].sum()
-budget = filtered_df["Budget"].sum()
-actual = filtered_df["Actual"].sum()
-profit = filtered_df["Profit"].sum()
-
-variance = actual - budget
-
-variance_percent = (
-    variance / budget * 100
-    if budget != 0 else 0
+st.markdown(
+    """
+    <div class="hero">
+        <h1>📊 FinSight AI</h1>
+        <p>
+            Agentic FP&A & ERP Intelligence Command Center
+            — turning financial data into management decisions.
+        </p>
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
 
-margin = (
-    profit / revenue * 100
-    if revenue != 0 else 0
-)
-
-if "Anomaly Flag" in filtered_df.columns:
-    anomaly_count = (
-        filtered_df["Anomaly Flag"] == -1
-    ).sum()
-else:
-    anomaly_count = 0
-
 
 # ============================================================
-# HEADER
+# EXECUTIVE DASHBOARD
 # ============================================================
 
-st.markdown("""
-<div class="hero">
-    <h1>FinSight AI</h1>
-    <p>
-        Agentic FP&A & ERP Intelligence Command Center
-        · From financial data to management action
-    </p>
-</div>
-""", unsafe_allow_html=True)
+if selected_page == "🏠 Executive Dashboard":
 
+    st.title("Executive Dashboard")
 
-# ============================================================
-# PAGE 1 — EXECUTIVE DASHBOARD
-# ============================================================
-
-if page == "🏠 Executive Dashboard":
-
-    st.markdown(
-        '<div class="section-title">'
-        'Executive Command Center'
-        '</div>',
-        unsafe_allow_html=True
+    st.caption(
+        "Management view of revenue, cost, profitability, "
+        "budget performance and financial risk."
     )
+
+    kpis = calculate_kpis(filtered_df)
 
     c1, c2, c3, c4, c5 = st.columns(5)
 
     c1.metric(
         "Revenue",
-        money(revenue)
+        money(kpis["revenue"])
     )
 
     c2.metric(
         "Actual Cost",
-        money(actual)
+        money(kpis["actual"])
     )
 
     c3.metric(
         "Budget",
-        money(budget)
+        money(kpis["budget"])
     )
 
     c4.metric(
         "Variance",
-        money(variance),
-        f"{variance_percent:.2f}%"
+        money(kpis["variance"]),
+        delta=(
+            f"{pct(safe_divide(kpis['variance'], kpis['budget']) * 100)}"
+            if kpis["budget"] != 0
+            else "0%"
+        )
     )
 
     c5.metric(
         "Profit Margin",
-        f"{margin:.2f}%"
+        pct(kpis["margin"])
     )
 
     st.divider()
 
-    # Monthly trend
+    left, right = st.columns(2)
 
-    monthly = (
-        filtered_df
-        .assign(
-            Month=filtered_df["Date"]
-            .dt.to_period("M")
-            .astype(str)
-        )
-        .groupby("Month")
-        .agg(
-            Revenue=("Revenue", "sum"),
-            Budget=("Budget", "sum"),
-            Actual=("Actual", "sum"),
-            Profit=("Profit", "sum")
-        )
-        .reset_index()
-    )
+    monthly = monthly_summary(filtered_df)
 
-    col1, col2 = st.columns(2)
+    with left:
 
-    with col1:
+        st.subheader("Revenue vs Actual Cost")
 
-        fig = go.Figure()
+        if not monthly.empty:
 
-        fig.add_trace(
-            go.Scatter(
-                x=monthly["Month"],
-                y=monthly["Revenue"],
-                mode="lines+markers",
-                name="Revenue"
+            chart_df = monthly.melt(
+                id_vars=["Month"],
+                value_vars=["Revenue", "Actual"],
+                var_name="Metric",
+                value_name="Amount",
             )
-        )
 
-        fig.add_trace(
-            go.Scatter(
-                x=monthly["Month"],
-                y=monthly["Actual"],
-                mode="lines+markers",
-                name="Actual Cost"
+            fig = px.line(
+                chart_df,
+                x="Month",
+                y="Amount",
+                color="Metric",
+                markers=True,
+                title="Monthly Financial Trend",
             )
-        )
 
-        fig.update_layout(
-            title="Revenue vs Actual Cost",
-            xaxis_title="Month",
-            yaxis_title="₹",
-            height=430,
-            hovermode="x unified"
-        )
-
-        st.plotly_chart(
-            fig,
-            use_container_width=True
-        )
-
-    with col2:
-
-        bu = (
-            filtered_df
-            .groupby("Business Unit")
-            .agg(
-                Budget=("Budget", "sum"),
-                Actual=("Actual", "sum")
-            )
-            .reset_index()
-        )
-
-        bu["Variance"] = (
-            bu["Actual"] -
-            bu["Budget"]
-        )
-
-        fig = px.bar(
-            bu.sort_values(
-                "Variance",
-                ascending=False
-            ),
-            x="Business Unit",
-            y="Variance",
-            title="Budget vs Actual Variance"
-        )
-
-        fig.update_layout(
-            height=430,
-            yaxis_title="Variance (₹)"
-        )
-
-        st.plotly_chart(
-            fig,
-            use_container_width=True
-        )
-
-    # AI insight
-
-    st.markdown(
-        '<div class="section-title">'
-        '🤖 AI CFO Snapshot'
-        '</div>',
-        unsafe_allow_html=True
-    )
-
-    cost = (
-        filtered_df
-        .groupby("Account / Cost Category")
-        .agg(
-            Budget=("Budget", "sum"),
-            Actual=("Actual", "sum")
-        )
-        .reset_index()
-    )
-
-    cost["Variance"] = (
-        cost["Actual"] -
-        cost["Budget"]
-    )
-
-    if len(cost) > 0:
-
-        top_cost = cost.loc[
-            cost["Variance"].idxmax()
-        ]
-
-        st.markdown(
-            f"""
-            <div class="insight-box">
-            <b>Key financial signal</b><br><br>
-            <b>{top_cost['Account / Cost Category']}</b>
-            is the largest unfavorable cost driver,
-            with a variance of
-            <b>{money_full(top_cost['Variance'])}</b>.
-            <br><br>
-            Overall actual cost is
-            <b>{money_full(actual)}</b>
-            against a budget of
-            <b>{money_full(budget)}</b>.
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-    st.caption(
-        f"Data source: {data_source} · "
-        f"{len(filtered_df):,} transactions"
-    )
-
-
-# ============================================================
-# PAGE 2 — FP&A PERFORMANCE
-# ============================================================
-
-elif page == "📊 FP&A Performance":
-
-    st.header("📊 FP&A Performance")
-
-    st.write(
-        "Drill from business-unit performance "
-        "into departments and cost categories."
-    )
-
-    bu = (
-        filtered_df
-        .groupby("Business Unit")
-        .agg(
-            Revenue=("Revenue", "sum"),
-            Budget=("Budget", "sum"),
-            Actual=("Actual", "sum"),
-            Profit=("Profit", "sum"),
-            Transactions=("Transaction ID", "count")
-        )
-        .reset_index()
-    )
-
-    bu["Variance"] = (
-        bu["Actual"] -
-        bu["Budget"]
-    )
-
-    bu["Variance %"] = np.where(
-        bu["Budget"] != 0,
-        bu["Variance"] /
-        bu["Budget"] * 100,
-        0
-    )
-
-    bu["Margin %"] = np.where(
-        bu["Revenue"] != 0,
-        bu["Profit"] /
-        bu["Revenue"] * 100,
-        0
-    )
-
-    st.subheader("Business Unit Performance")
-
-    display_bu = bu.copy()
-
-    st.dataframe(
-        display_bu.style.format({
-            "Revenue": "₹{:,.0f}",
-            "Budget": "₹{:,.0f}",
-            "Actual": "₹{:,.0f}",
-            "Profit": "₹{:,.0f}",
-            "Variance": "₹{:,.0f}",
-            "Variance %": "{:.2f}%",
-            "Margin %": "{:.2f}%",
-            "Transactions": "{:,.0f}"
-        }),
-        use_container_width=True,
-        hide_index=True
-    )
-
-    st.divider()
-
-    dept = (
-        filtered_df
-        .groupby("Department")
-        .agg(
-            Revenue=("Revenue", "sum"),
-            Budget=("Budget", "sum"),
-            Actual=("Actual", "sum"),
-            Profit=("Profit", "sum")
-        )
-        .reset_index()
-    )
-
-    dept["Variance"] = (
-        dept["Actual"] -
-        dept["Budget"]
-    )
-
-    dept["Variance %"] = np.where(
-        dept["Budget"] != 0,
-        dept["Variance"] /
-        dept["Budget"] * 100,
-        0
-    )
-
-    st.subheader("Department Performance")
-
-    st.dataframe(
-        dept.style.format({
-            "Revenue": "₹{:,.0f}",
-            "Budget": "₹{:,.0f}",
-            "Actual": "₹{:,.0f}",
-            "Profit": "₹{:,.0f}",
-            "Variance": "₹{:,.0f}",
-            "Variance %": "{:.2f}%"
-        }),
-        use_container_width=True,
-        hide_index=True
-    )
-
-    st.divider()
-
-    category = (
-        filtered_df
-        .groupby("Account / Cost Category")
-        .agg(
-            Budget=("Budget", "sum"),
-            Actual=("Actual", "sum")
-        )
-        .reset_index()
-    )
-
-    category["Variance"] = (
-        category["Actual"] -
-        category["Budget"]
-    )
-
-    category["Variance %"] = np.where(
-        category["Budget"] != 0,
-        category["Variance"] /
-        category["Budget"] * 100,
-        0
-    )
-
-    st.subheader("Cost Driver Analysis")
-
-    st.dataframe(
-        category
-        .sort_values(
-            "Variance",
-            ascending=False
-        )
-        .style.format({
-            "Budget": "₹{:,.0f}",
-            "Actual": "₹{:,.0f}",
-            "Variance": "₹{:,.0f}",
-            "Variance %": "{:.2f}%"
-        }),
-        use_container_width=True,
-        hide_index=True
-    )
-
-
-# ============================================================
-# PAGE 3 — RISK & ANOMALIES
-# ============================================================
-
-elif page == "⚠️ Risk & Anomalies":
-
-    st.header("⚠️ Risk & Anomaly Intelligence")
-
-    st.write(
-        "Identify unusual financial transactions "
-        "and potential control risks."
-    )
-
-    if "Anomaly Flag" not in filtered_df.columns:
-
-        st.info(
-            "The uploaded dataset does not contain "
-            "anomaly flags. Running the ML anomaly engine..."
-        )
-
-        numeric = filtered_df[
-            ["Budget", "Actual", "Revenue"]
-        ].fillna(0)
-
-        detector = IsolationForest(
-            contamination=0.05,
-            random_state=42
-        )
-
-        filtered_df["Anomaly Flag"] = (
-            detector.fit_predict(numeric)
-        )
-
-    anomalies = filtered_df[
-        filtered_df["Anomaly Flag"] == -1
-    ].copy()
-
-    r1, r2, r3 = st.columns(3)
-
-    r1.metric(
-        "Transactions",
-        f"{len(filtered_df):,}"
-    )
-
-    r2.metric(
-        "Anomalies",
-        f"{len(anomalies):,}"
-    )
-
-    r3.metric(
-        "Anomaly Rate",
-        pct(
-            len(anomalies) /
-            len(filtered_df) * 100
-            if len(filtered_df)
-            else 0
-        )
-    )
-
-    st.divider()
-
-    if len(anomalies) > 0:
-
-        anomaly_bu = (
-            anomalies
-            .groupby("Business Unit")
-            .size()
-            .reset_index(
-                name="Anomalies"
-            )
-            .sort_values(
-                "Anomalies",
-                ascending=False
-            )
-        )
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-
-            fig = px.bar(
-                anomaly_bu,
-                x="Business Unit",
-                y="Anomalies",
-                title="Anomalies by Business Unit"
+            fig.update_layout(
+                height=380,
+                yaxis_title="Amount",
+                xaxis_title="Month",
+                legend_title="",
             )
 
             st.plotly_chart(
@@ -902,28 +1314,316 @@ elif page == "⚠️ Risk & Anomalies":
                 use_container_width=True
             )
 
-        with col2:
+    with right:
 
-            anomaly_cost = (
-                anomalies
-                .groupby(
-                    "Account / Cost Category"
-                )
-                .size()
-                .reset_index(
-                    name="Anomalies"
-                )
-                .sort_values(
-                    "Anomalies",
-                    ascending=False
-                )
-            )
+        st.subheader("Business Unit Variance")
+
+        bu = business_unit_summary(filtered_df)
+
+        if not bu.empty:
 
             fig = px.bar(
-                anomaly_cost,
+                bu,
+                x="Business Unit",
+                y="Variance",
+                title="Budget vs Actual Variance",
+            )
+
+            fig.add_hline(
+                y=0,
+                line_dash="dash",
+            )
+
+            fig.update_layout(
+                height=380
+            )
+
+            st.plotly_chart(
+                fig,
+                use_container_width=True
+            )
+
+    st.subheader("AI CFO Executive Snapshot")
+
+    insights = generate_ai_cfo_insights(
+        filtered_df
+    )
+
+    if insights.empty:
+
+        st.success(
+            "No material management risks were identified "
+            "from the current dataset."
+        )
+
+    else:
+
+        for _, row in insights.head(3).iterrows():
+
+            st.markdown(
+                f"""
+                <div class="insight-box">
+                    <b>{row['Priority']} — {row['Finding']}</b><br>
+                    <span>{row['Evidence']}</span><br><br>
+                    <b>Management Action:</b>
+                    {row['Management Action']}
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+
+# ============================================================
+# FP&A PERFORMANCE
+# ============================================================
+
+elif selected_page == "📊 FP&A Performance":
+
+    st.title("FP&A Performance")
+
+    st.caption(
+        "Budget, actuals, variance and profitability analysis "
+        "across the organization."
+    )
+
+    tab1, tab2, tab3 = st.tabs(
+        [
+            "Business Units",
+            "Departments",
+            "Cost Categories",
+        ]
+    )
+
+    with tab1:
+
+        result = business_unit_summary(
+            filtered_df
+        )
+
+        display = result.copy()
+
+        for col in [
+            "Revenue",
+            "Budget",
+            "Actual",
+            "Profit",
+            "Variance",
+        ]:
+            display[col] = display[col].map(
+                money_full
+            )
+
+        display["Variance %"] = result[
+            "Variance %"
+        ].map(pct)
+
+        display["Margin %"] = result[
+            "Margin %"
+        ].map(pct)
+
+        st.dataframe(
+            display,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    with tab2:
+
+        result = department_summary(
+            filtered_df
+        )
+
+        display = result.copy()
+
+        for col in [
+            "Revenue",
+            "Budget",
+            "Actual",
+            "Profit",
+            "Variance",
+        ]:
+            display[col] = display[col].map(
+                money_full
+            )
+
+        display["Variance %"] = result[
+            "Variance %"
+        ].map(pct)
+
+        st.dataframe(
+            display,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    with tab3:
+
+        result = category_summary(
+            filtered_df
+        )
+
+        display = result.copy()
+
+        for col in [
+            "Budget",
+            "Actual",
+            "Revenue",
+            "Variance",
+        ]:
+            display[col] = display[col].map(
+                money_full
+            )
+
+        display["Variance %"] = result[
+            "Variance %"
+        ].map(pct)
+
+        st.dataframe(
+            display,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    st.divider()
+
+    st.subheader("Monthly Financial Trend")
+
+    monthly = monthly_summary(
+        filtered_df
+    )
+
+    if not monthly.empty:
+
+        display = monthly.copy()
+
+        for col in [
+            "Revenue",
+            "Budget",
+            "Actual",
+            "Profit",
+            "Variance",
+        ]:
+            display[col] = display[col].map(
+                money_full
+            )
+
+        display["Margin %"] = monthly[
+            "Margin %"
+        ].map(pct)
+
+        st.dataframe(
+            display,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+
+# ============================================================
+# RISK & ANOMALIES
+# ============================================================
+
+elif selected_page == "⚠️ Risk & Anomalies":
+
+    st.title("Risk & Anomalies")
+
+    st.caption(
+        "Financial risk detection using budget variance "
+        "and machine-learning anomaly detection."
+    )
+
+    anomaly_df = detect_anomalies(
+        filtered_df
+    )
+
+    anomaly_count = int(
+        anomaly_df["Anomaly Flag"].sum()
+    )
+
+    total_transactions = len(
+        anomaly_df
+    )
+
+    risk_rate = safe_divide(
+        anomaly_count,
+        total_transactions
+    ) * 100
+
+    c1, c2, c3 = st.columns(3)
+
+    c1.metric(
+        "Transactions",
+        f"{total_transactions:,}"
+    )
+
+    c2.metric(
+        "Potential Anomalies",
+        f"{anomaly_count:,}"
+    )
+
+    c3.metric(
+        "Anomaly Rate",
+        pct(risk_rate)
+    )
+
+    st.divider()
+
+    left, right = st.columns(2)
+
+    with left:
+
+        st.subheader(
+            "Anomalies by Business Unit"
+        )
+
+        anomaly_bu = (
+            anomaly_df[
+                anomaly_df["Anomaly Flag"] == 1
+            ]
+            .groupby("Business Unit")
+            .size()
+            .reset_index(name="Anomalies")
+        )
+
+        if not anomaly_bu.empty:
+
+            fig = px.bar(
+                anomaly_bu,
+                x="Business Unit",
+                y="Anomalies",
+            )
+
+            st.plotly_chart(
+                fig,
+                use_container_width=True
+            )
+
+        else:
+
+            st.info(
+                "No anomalies detected."
+            )
+
+    with right:
+
+        st.subheader(
+            "Anomalies by Cost Category"
+        )
+
+        anomaly_cat = (
+            anomaly_df[
+                anomaly_df["Anomaly Flag"] == 1
+            ]
+            .groupby("Account / Cost Category")
+            .size()
+            .reset_index(name="Anomalies")
+        )
+
+        if not anomaly_cat.empty:
+
+            fig = px.bar(
+                anomaly_cat,
                 x="Account / Cost Category",
                 y="Anomalies",
-                title="Anomalies by Cost Category"
             )
 
             fig.update_layout(
@@ -935,11 +1635,29 @@ elif page == "⚠️ Risk & Anomalies":
                 use_container_width=True
             )
 
-        st.subheader(
-            "Transactions Requiring Investigation"
+        else:
+
+            st.info(
+                "No anomalies detected."
+            )
+
+    st.subheader(
+        "Flagged Transactions"
+    )
+
+    flagged = anomaly_df[
+        anomaly_df["Anomaly Flag"] == 1
+    ].copy()
+
+    if flagged.empty:
+
+        st.success(
+            "No unusual transactions identified."
         )
 
-        columns = [
+    else:
+
+        display_cols = [
             "Transaction ID",
             "Date",
             "Business Unit",
@@ -949,499 +1667,405 @@ elif page == "⚠️ Risk & Anomalies":
             "Actual",
             "Variance",
             "Variance %",
-            "Anomaly"
+            "Anomaly",
         ]
 
-        available = [
-            c for c in columns
-            if c in anomalies.columns
-        ]
+        display = flagged[
+            [
+                c
+                for c in display_cols
+                if c in flagged.columns
+            ]
+        ].copy()
+
+        for col in [
+            "Budget",
+            "Actual",
+            "Variance",
+        ]:
+            if col in display.columns:
+
+                display[col] = display[
+                    col
+                ].map(money_full)
+
+        if "Variance %" in display.columns:
+
+            display["Variance %"] = flagged[
+                "Variance %"
+            ].map(pct)
 
         st.dataframe(
-            anomalies[
-                available
-            ]
-            .sort_values(
-                "Actual",
-                ascending=False
-            )
-            .head(50)
-            .style.format({
-                "Budget": "₹{:,.0f}",
-                "Actual": "₹{:,.0f}",
-                "Variance": "₹{:,.0f}",
-                "Variance %": "{:.2f}%"
-            }),
+            display,
             use_container_width=True,
-            hide_index=True
-        )
-
-    else:
-
-        st.success(
-            "No anomalies detected in the current dataset."
+            hide_index=True,
         )
 
 
 # ============================================================
-# PAGE 4 — CASH & LIQUIDITY
+# CASH & LIQUIDITY
 # ============================================================
 
-elif page == "💰 Cash & Liquidity":
+elif selected_page == "💵 Cash & Liquidity":
 
-    st.header("💰 Cash Flow & Liquidity Command Center")
+    st.title("Cash & Liquidity Command Center")
 
-    st.info(
-        "Cash-flow values shown here are a modeled "
-        "synthetic ERP cash-flow simulation."
+    st.caption(
+        "Modeled cash-flow intelligence for working-capital "
+        "and liquidity planning."
     )
 
-    cash = filtered_df.copy()
-
-    np.random.seed(42)
-
-    cash["Receivable"] = (
-        cash["Revenue"] *
-        np.random.uniform(
-            0.20,
-            0.45,
-            len(cash)
-        )
-    )
-
-    cash["Payable"] = (
-        cash["Actual"] *
-        np.random.uniform(
-            0.15,
-            0.40,
-            len(cash)
-        )
-    )
-
-    cash["Month"] = (
-        cash["Date"]
-        .dt.to_period("M")
-        .astype(str)
-    )
-
-    monthly_cash = (
-        cash
-        .groupby("Month")
-        .agg(
-            Cash_Inflow=("Receivable", "sum"),
-            Cash_Outflow=("Payable", "sum")
-        )
-        .reset_index()
-    )
-
-    monthly_cash["Net Cash Flow"] = (
-        monthly_cash["Cash_Inflow"] -
-        monthly_cash["Cash_Outflow"]
-    )
-
-    opening_cash = 10_000_000
-
-    running_cash = opening_cash
-    opening_values = []
-    closing_values = []
-
-    for value in monthly_cash["Net Cash Flow"]:
-
-        opening_values.append(
-            running_cash
-        )
-
-        running_cash += value
-
-        closing_values.append(
-            running_cash
-        )
-
-    monthly_cash["Opening Cash"] = (
-        opening_values
-    )
-
-    monthly_cash["Closing Cash"] = (
-        closing_values
-    )
-
-    ending_cash = (
-        monthly_cash["Closing Cash"].iloc[-1]
-    )
-
-    minimum_cash = (
-        monthly_cash["Closing Cash"].min()
-    )
-
-    avg_outflow = (
-        monthly_cash["Cash_Outflow"].mean()
-    )
-
-    runway = (
-        ending_cash / avg_outflow
-        if avg_outflow > 0
-        else np.inf
-    )
-
-    if minimum_cash < 0:
-        status = "CRITICAL"
-    elif minimum_cash < opening_cash * 0.25:
-        status = "HIGH RISK"
-    elif minimum_cash < opening_cash * 0.50:
-        status = "WATCH"
-    else:
-        status = "HEALTHY"
-
-    c1, c2, c3, c4 = st.columns(4)
-
-    c1.metric(
-        "Opening Cash",
-        money(opening_cash)
-    )
-
-    c2.metric(
-        "Ending Cash",
-        money(ending_cash)
-    )
-
-    c3.metric(
-        "Avg Monthly Outflow",
-        money(avg_outflow)
-    )
-
-    c4.metric(
-        "Liquidity Status",
-        status
-    )
-
-    st.divider()
-
-    fig = go.Figure()
-
-    fig.add_trace(
-        go.Scatter(
-            x=monthly_cash["Month"],
-            y=monthly_cash["Cash_Inflow"],
-            mode="lines+markers",
-            name="Cash Inflow"
-        )
-    )
-
-    fig.add_trace(
-        go.Scatter(
-            x=monthly_cash["Month"],
-            y=monthly_cash["Cash_Outflow"],
-            mode="lines+markers",
-            name="Cash Outflow"
-        )
-    )
-
-    fig.add_trace(
-        go.Scatter(
-            x=monthly_cash["Month"],
-            y=monthly_cash["Closing Cash"],
-            mode="lines+markers",
-            name="Closing Cash"
-        )
-    )
-
-    fig.update_layout(
-        title="Cash Flow & Liquidity Trend",
-        xaxis_title="Month",
-        yaxis_title="₹",
-        height=500,
-        hovermode="x unified"
-    )
-
-    st.plotly_chart(
-        fig,
-        use_container_width=True
-    )
-
-    st.subheader("Monthly Cash Position")
-
-    st.dataframe(
-        monthly_cash.style.format({
-            "Cash_Inflow": "₹{:,.0f}",
-            "Cash_Outflow": "₹{:,.0f}",
-            "Net Cash Flow": "₹{:,.0f}",
-            "Opening Cash": "₹{:,.0f}",
-            "Closing Cash": "₹{:,.0f}"
-        }),
-        use_container_width=True,
-        hide_index=True
-    )
-
-    st.subheader("AI CFO Liquidity Recommendation")
-
-    if status == "CRITICAL":
-
-        st.error(
-            "Immediate liquidity intervention recommended. "
-            "Accelerate collections and defer non-critical spending."
-        )
-
-    elif status == "HIGH RISK":
-
-        st.warning(
-            "Liquidity risk is elevated. "
-            "Prioritize receivable collections and review upcoming liabilities."
-        )
-
-    elif status == "WATCH":
-
-        st.warning(
-            "Cash position requires monitoring. "
-            "Review payment timing and discretionary expenditure."
-        )
-
-    else:
-
-        st.success(
-            "Liquidity position is currently healthy "
-            "under the modeled assumptions."
-        )
-
-
-# ============================================================
-# PAGE 5 — FORECAST & SCENARIOS
-# ============================================================
-
-elif page == "🔮 Forecast & Scenarios":
-
-    st.header("🔮 Revenue Forecast & Scenario Planning")
-
-    monthly = (
+    cash = build_cash_flow(
         filtered_df
-        .assign(
-            Month=filtered_df["Date"]
-            .dt.to_period("M")
-            .astype(str)
+    )
+
+    if cash.empty:
+
+        st.warning(
+            "Not enough financial history to model cash flow."
         )
-        .groupby("Month")
-        .agg(
-            Revenue=("Revenue", "sum"),
-            Profit=("Profit", "sum")
+
+    else:
+
+        latest = cash.iloc[-1]
+
+        c1, c2, c3, c4 = st.columns(4)
+
+        c1.metric(
+            "Cash Inflow",
+            money(latest["Cash Inflow"])
         )
-        .reset_index()
-    )
 
-    monthly["Month_Date"] = pd.to_datetime(
-        monthly["Month"]
-    )
-
-    monthly = monthly.sort_values(
-        "Month_Date"
-    ).reset_index(drop=True)
-
-    monthly["Period"] = np.arange(
-        len(monthly)
-    )
-
-    model = LinearRegression()
-
-    model.fit(
-        monthly[["Period"]],
-        monthly["Revenue"]
-    )
-
-    periods = np.arange(
-        len(monthly),
-        len(monthly) + 6
-    )
-
-    future_dates = pd.date_range(
-        monthly["Month_Date"].max()
-        + pd.offsets.MonthBegin(1),
-        periods=6,
-        freq="MS"
-    )
-
-    future_X = pd.DataFrame({
-        "Period": periods
-    })
-
-    base = model.predict(
-        future_X
-    )
-
-    base = np.maximum(
-        base,
-        0
-    )
-
-    optimistic = (
-        base * 1.08
-    )
-
-    downside = (
-        base * 0.92
-    )
-
-    forecast = pd.DataFrame({
-        "Month": future_dates,
-        "Base Case": base,
-        "Optimistic": optimistic,
-        "Downside": downside
-    })
-
-    margin_hist = (
-        monthly["Profit"].sum() /
-        monthly["Revenue"].sum()
-        if monthly["Revenue"].sum()
-        else 0
-    )
-
-    forecast["Base Profit"] = (
-        forecast["Base Case"] *
-        margin_hist
-    )
-
-    forecast["Optimistic Profit"] = (
-        forecast["Optimistic"] *
-        margin_hist
-    )
-
-    forecast["Downside Profit"] = (
-        forecast["Downside"] *
-        margin_hist
-    )
-
-    st.subheader("Next 6 Months")
-
-    display_forecast = forecast.copy()
-
-    display_forecast["Month"] = (
-        display_forecast["Month"]
-        .dt.strftime("%b %Y")
-    )
-
-    st.dataframe(
-        display_forecast.style.format({
-            "Base Case": "₹{:,.0f}",
-            "Optimistic": "₹{:,.0f}",
-            "Downside": "₹{:,.0f}",
-            "Base Profit": "₹{:,.0f}",
-            "Optimistic Profit": "₹{:,.0f}",
-            "Downside Profit": "₹{:,.0f}"
-        }),
-        use_container_width=True,
-        hide_index=True
-    )
-
-    fig = go.Figure()
-
-    fig.add_trace(
-        go.Scatter(
-            x=monthly["Month_Date"],
-            y=monthly["Revenue"],
-            mode="lines+markers",
-            name="Historical"
+        c2.metric(
+            "Cash Outflow",
+            money(latest["Cash Outflow"])
         )
-    )
 
-    fig.add_trace(
-        go.Scatter(
-            x=forecast["Month"],
-            y=forecast["Base Case"],
-            mode="lines+markers",
-            name="Base Case"
+        c3.metric(
+            "Net Cash Flow",
+            money(latest["Net Cash Flow"])
         )
-    )
 
-    fig.add_trace(
-        go.Scatter(
-            x=forecast["Month"],
-            y=forecast["Optimistic"],
-            mode="lines+markers",
-            name="Optimistic"
+        c4.metric(
+            "Closing Cash",
+            money(latest["Closing Cash"])
         )
-    )
 
-    fig.add_trace(
-        go.Scatter(
-            x=forecast["Month"],
-            y=forecast["Downside"],
-            mode="lines+markers",
-            name="Downside"
+        st.divider()
+
+        left, right = st.columns(2)
+
+        with left:
+
+            st.subheader(
+                "Cash Inflow vs Outflow"
+            )
+
+            chart_df = cash.melt(
+                id_vars=["Month"],
+                value_vars=[
+                    "Cash Inflow",
+                    "Cash Outflow",
+                ],
+                var_name="Metric",
+                value_name="Amount",
+            )
+
+            fig = px.bar(
+                chart_df,
+                x="Month",
+                y="Amount",
+                color="Metric",
+                barmode="group",
+            )
+
+            fig.update_layout(
+                height=380
+            )
+
+            st.plotly_chart(
+                fig,
+                use_container_width=True
+            )
+
+        with right:
+
+            st.subheader(
+                "Closing Cash Trend"
+            )
+
+            fig = px.line(
+                cash,
+                x="Month",
+                y="Closing Cash",
+                markers=True,
+            )
+
+            fig.update_layout(
+                height=380
+            )
+
+            st.plotly_chart(
+                fig,
+                use_container_width=True
+            )
+
+        st.subheader(
+            "Liquidity Status"
         )
-    )
 
-    fig.update_layout(
-        title="Revenue Forecast & Scenarios",
-        xaxis_title="Month",
-        yaxis_title="Revenue (₹)",
-        height=550,
-        hovermode="x unified"
-    )
+        status = latest[
+            "Liquidity Status"
+        ]
 
-    st.plotly_chart(
-        fig,
-        use_container_width=True
-    )
+        if status == "Healthy":
 
-    st.subheader("AI CFO Forecast Interpretation")
+            st.success(
+                "Liquidity status: Healthy"
+            )
 
-    base_total = forecast["Base Case"].sum()
-    upside_total = forecast["Optimistic"].sum()
-    downside_total = forecast["Downside"].sum()
+        elif status == "Watch":
 
-    c1, c2, c3 = st.columns(3)
+            st.warning(
+                "Liquidity status: Watch"
+            )
 
-    c1.metric(
-        "Base Revenue",
-        money(base_total)
-    )
+        else:
 
-    c2.metric(
-        "Optimistic",
-        money(upside_total)
-    )
+            st.error(
+                "Liquidity status: Critical"
+            )
 
-    c3.metric(
-        "Downside",
-        money(downside_total)
-    )
+        display = cash.copy()
 
-    st.info(
-        "Base case represents the model trend. "
-        "Optimistic and downside cases are explicit ±8% "
-        "management stress scenarios, not guaranteed predictions."
-    )
+        for col in [
+            "Cash Inflow",
+            "Cash Outflow",
+            "Net Cash Flow",
+            "Opening Cash",
+            "Closing Cash",
+        ]:
+            display[col] = display[
+                col
+            ].map(money_full)
+
+        st.dataframe(
+            display,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        st.info(
+            "Note: cash flow is a modeled portfolio-prototype "
+            "layer derived from the synthetic ERP dataset. "
+            "It is not a live treasury or bank integration."
+        )
 
 
 # ============================================================
-# PAGE 6 — AI CFO
+# FORECAST & SCENARIOS
 # ============================================================
 
-elif page == "🤖 AI CFO":
+elif selected_page == "📈 Forecast & Scenarios":
 
-    st.header("🤖 AI CFO")
+    st.title("Forecast & Scenario Planner")
 
-    st.write(
-        "Ask a natural-language finance question "
-        "and FinSight will convert financial evidence "
-        "into a management-oriented response."
+    st.caption(
+        "Forward-looking revenue and cost scenarios "
+        "for FP&A planning."
+    )
+
+    forecast = build_forecast(
+        filtered_df,
+        periods=6
+    )
+
+    if forecast is None:
+
+        st.warning(
+            "At least three months of financial history "
+            "are required for forecasting."
+        )
+
+    else:
+
+        historical = monthly_summary(
+            filtered_df
+        )
+
+        if len(historical) >= 2:
+
+            first_revenue = historical[
+                "Revenue"
+            ].iloc[0]
+
+            last_revenue = historical[
+                "Revenue"
+            ].iloc[-1]
+
+            historical_growth = (
+                safe_divide(
+                    last_revenue,
+                    first_revenue
+                ) ** (
+                    1 / max(len(historical) - 1, 1)
+                ) - 1
+            ) * 100
+
+        else:
+
+            historical_growth = 0
+
+        historical_margin = safe_divide(
+            historical["Profit"].sum(),
+            historical["Revenue"].sum()
+        ) * 100
+
+        c1, c2, c3 = st.columns(3)
+
+        c1.metric(
+            "Historical Avg Growth",
+            pct(historical_growth)
+        )
+
+        c2.metric(
+            "Historical Margin",
+            pct(historical_margin)
+        )
+
+        c3.metric(
+            "Forecast Horizon",
+            "6 Months"
+        )
+
+        st.divider()
+
+        scenario = st.selectbox(
+            "Scenario",
+            [
+                "Base",
+                "Optimistic",
+                "Downside",
+            ]
+        )
+
+        if scenario == "Base":
+
+            revenue_col = "Base Revenue"
+            cost_col = "Base Cost"
+            profit_col = "Base Profit"
+
+        elif scenario == "Optimistic":
+
+            revenue_col = "Optimistic Revenue"
+            cost_col = "Optimistic Cost"
+            profit_col = "Optimistic Profit"
+
+        else:
+
+            revenue_col = "Downside Revenue"
+            cost_col = "Downside Cost"
+            profit_col = "Downside Profit"
+
+        chart_df = forecast[
+            ["Month", revenue_col, cost_col]
+        ].melt(
+            id_vars=["Month"],
+            var_name="Metric",
+            value_name="Amount",
+        )
+
+        fig = px.line(
+            chart_df,
+            x="Month",
+            y="Amount",
+            color="Metric",
+            markers=True,
+        )
+
+        fig.update_layout(
+            height=420
+        )
+
+        st.plotly_chart(
+            fig,
+            use_container_width=True
+        )
+
+        st.subheader(
+            f"{scenario} Scenario Forecast"
+        )
+
+        display = forecast[
+            [
+                "Month",
+                revenue_col,
+                cost_col,
+                profit_col,
+            ]
+        ].copy()
+
+        display.columns = [
+            "Month",
+            "Revenue",
+            "Cost",
+            "Profit",
+        ]
+
+        for col in [
+            "Revenue",
+            "Cost",
+            "Profit",
+        ]:
+            display[col] = display[
+                col
+            ].map(money_full)
+
+        st.dataframe(
+            display,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        st.info(
+            "Forecast uses a transparent statistical trend model "
+            "with scenario assumptions. It is intended for "
+            "portfolio demonstration and decision support."
+        )
+
+
+# ============================================================
+# AI CFO
+# ============================================================
+
+elif selected_page == "🤖 AI CFO":
+
+    st.title("🤖 AI CFO")
+
+    st.caption(
+        "Evidence-based financial decision support "
+        "for management questions."
+    )
+
+    st.markdown(
+        """
+        <div class="section-card">
+            <b>Ask FinSight AI a finance question.</b><br>
+            <span class="small-muted">
+            Examples: What is driving the cost overrun?
+            Which business unit needs attention?
+            What should management review first?
+            </span>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
     question = st.text_input(
-        "Ask your CFO question",
+        "Management Question",
         placeholder=(
-            "Why did costs increase?"
-        )
-    )
-
-    examples = [
-        "Why did costs increase?",
-        "Which business unit needs attention?",
-        "What are the biggest cost drivers?",
-        "Where are the anomalies?",
-        "What should management focus on?"
-    ]
-
-    st.caption(
-        "Examples: " +
-        " · ".join(examples)
+            "e.g. What is driving the cost overrun?"
+        ),
     )
 
     if st.button(
@@ -1449,274 +2073,218 @@ elif page == "🤖 AI CFO":
         type="primary"
     ):
 
-        if not question.strip():
+        insights = generate_ai_cfo_insights(
+            filtered_df
+        )
 
-            st.warning(
-                "Enter a finance question first."
+        if insights.empty:
+
+            st.success(
+                "FinSight AI did not identify a material "
+                "financial risk from the current dataset."
             )
 
         else:
 
-            cost = (
-                filtered_df
-                .groupby(
-                    "Account / Cost Category"
-                )
-                .agg(
-                    Budget=("Budget", "sum"),
-                    Actual=("Actual", "sum")
-                )
-                .reset_index()
-            )
+            # Choose insight based on keywords
+            question_lower = question.lower()
 
-            cost["Variance"] = (
-                cost["Actual"] -
-                cost["Budget"]
-            )
+            selected_insight = None
 
-            bu = (
-                filtered_df
-                .groupby("Business Unit")
-                .agg(
-                    Budget=("Budget", "sum"),
-                    Actual=("Actual", "sum"),
-                    Revenue=("Revenue", "sum"),
-                    Profit=("Profit", "sum")
-                )
-                .reset_index()
-            )
+            if any(
+                word in question_lower
+                for word in [
+                    "cost",
+                    "overrun",
+                    "expense",
+                    "spend",
+                    "variance",
+                ]
+            ):
 
-            bu["Variance"] = (
-                bu["Actual"] -
-                bu["Budget"]
-            )
+                selected_insight = insights[
+                    insights["Finding"].str.contains(
+                        "cost|variance|overrun",
+                        case=False,
+                        regex=True
+                    )
+                ]
 
-            top_cost = cost.loc[
-                cost["Variance"].idxmax()
-            ]
+            if (
+                selected_insight is None
+                or selected_insight.empty
+            ):
 
-            top_bu = bu.loc[
-                bu["Variance"].idxmax()
-            ]
+                selected_insight = insights
+
+            row = selected_insight.iloc[0]
 
             st.subheader(
-                "Executive Finding"
+                "AI CFO Recommendation"
             )
 
             st.markdown(
                 f"""
                 <div class="insight-box">
+                    <h4>Finding</h4>
+                    {row['Finding']}
 
-                <b>Finding</b><br>
-                {top_cost['Account / Cost Category']}
-                is the largest unfavorable cost driver.
+                    <h4>Evidence</h4>
+                    {row['Evidence']}
 
-                <br><br>
+                    <h4>Business Impact</h4>
+                    {row['Business Impact']}
 
-                <b>Evidence</b><br>
-                Actual spend:
-                {money_full(top_cost['Actual'])}
+                    <h4>Management Action</h4>
+                    {row['Management Action']}
 
-                <br>
-                Budget:
-                {money_full(top_cost['Budget'])}
+                    <h4>Priority</h4>
+                    {row['Priority']}
 
-                <br>
-                Variance:
-                {money_full(top_cost['Variance'])}
-
-                <br><br>
-
-                <b>Business Impact</b><br>
-                Overall actual cost is
-                {money_full(actual)}
-                versus budget of
-                {money_full(budget)}.
-
-                <br><br>
-
-                <b>Management Action</b><br>
-                Investigate the root cause of the
-                {top_cost['Account / Cost Category']}
-                variance, validate the responsible cost center
-                and establish corrective controls.
-
-                <br><br>
-
-                <b>Priority</b><br>
-                P1 — High
-
-                <br><br>
-
-                <b>Owner</b><br>
-                Finance / Cost Center Owner
-
+                    <h4>Owner</h4>
+                    {row['Owner']}
                 </div>
                 """,
-                unsafe_allow_html=True
+                unsafe_allow_html=True,
             )
 
             st.subheader(
-                "Business Unit Requiring Attention"
+                "Full Decision Queue"
             )
 
-            st.warning(
-                f"{top_bu['Business Unit']} has the "
-                f"largest unfavorable variance of "
-                f"{money_full(top_bu['Variance'])}."
+            st.dataframe(
+                insights,
+                use_container_width=True,
+                hide_index=True,
             )
 
-            st.subheader(
-                "Decision Path"
-            )
+    else:
 
-            st.write(
-                "Financial Data → Variance Analysis → "
-                "Cost Driver → Business Impact → "
-                "Risk → Management Action"
-            )
+        st.info(
+            "Enter a management question and run the "
+            "AI CFO analysis."
+        )
 
 
 # ============================================================
-# PAGE 7 — ACTION CENTER
+# ACTION CENTER
 # ============================================================
 
-elif page == "🎯 Action Center":
+elif selected_page == "🎯 Action Center":
 
-    st.header("🎯 Management Action Center")
+    st.title("🎯 Management Action Center")
 
-    st.write(
-        "AI-generated actions derived from financial signals."
+    st.caption(
+        "Prioritized financial actions generated from "
+        "budget variance and cost-driver analysis."
     )
 
-    actions = []
-
-    cost = (
+    actions = build_action_center(
         filtered_df
-        .groupby(
-            "Account / Cost Category"
-        )
-        .agg(
-            Budget=("Budget", "sum"),
-            Actual=("Actual", "sum")
-        )
-        .reset_index()
     )
 
-    cost["Variance"] = (
-        cost["Actual"] -
-        cost["Budget"]
-    )
+    if actions.empty:
 
-    cost["Variance %"] = np.where(
-        cost["Budget"] != 0,
-        cost["Variance"] /
-        cost["Budget"] * 100,
-        0
-    )
-
-    for _, row in cost.iterrows():
-
-        if row["Variance %"] >= 20:
-
-            priority = "P0 — Critical"
-
-        elif row["Variance %"] >= 10:
-
-            priority = "P1 — High"
-
-        elif row["Variance %"] >= 5:
-
-            priority = "P2 — Medium"
-
-        else:
-
-            continue
-
-        actions.append({
-            "Priority": priority,
-            "Action":
-                f"Investigate {row['Account / Cost Category']} "
-                f"overspend",
-            "Financial Impact":
-                row["Variance"],
-            "Owner":
-                "Finance / Cost Center Owner",
-            "Status":
-                "Open"
-        })
-
-    if actions:
-
-        action_df = pd.DataFrame(
-            actions
-        )
-
-        priority_order = {
-            "P0 — Critical": 0,
-            "P1 — High": 1,
-            "P2 — Medium": 2
-        }
-
-        action_df["_order"] = (
-            action_df["Priority"]
-            .map(priority_order)
-        )
-
-        action_df = (
-            action_df
-            .sort_values("_order")
-            .drop(columns="_order")
-        )
-
-        st.dataframe(
-            action_df.style.format({
-                "Financial Impact":
-                    "₹{:,.0f}"
-            }),
-            use_container_width=True,
-            hide_index=True
-        )
-
-        st.subheader(
-            "Recommended Execution Sequence"
-        )
-
-        st.write(
-            "1. Resolve P0 critical items."
-        )
-
-        st.write(
-            "2. Investigate P1 high-priority variances."
-        )
-
-        st.write(
-            "3. Assign accountable cost-center owners."
-        )
-
-        st.write(
-            "4. Track corrective action to closure."
+        st.success(
+            "No open financial actions were generated."
         )
 
     else:
 
-        st.success(
-            "No material cost actions triggered "
-            "under the current thresholds."
+        p0 = len(
+            actions[
+                actions["Priority"] == "P0"
+            ]
+        )
+
+        p1 = len(
+            actions[
+                actions["Priority"] == "P1"
+            ]
+        )
+
+        p2 = len(
+            actions[
+                actions["Priority"] == "P2"
+            ]
+        )
+
+        c1, c2, c3 = st.columns(3)
+
+        c1.metric(
+            "P0 Critical",
+            p0
+        )
+
+        c2.metric(
+            "P1 High",
+            p1
+        )
+
+        c3.metric(
+            "P2 Monitor",
+            p2
+        )
+
+        st.divider()
+
+        for _, row in actions.iterrows():
+
+            priority_class = (
+                "priority-p0"
+                if row["Priority"] == "P0"
+                else (
+                    "priority-p1"
+                    if row["Priority"] == "P1"
+                    else "priority-p2"
+                )
+            )
+
+            st.markdown(
+                f"""
+                <div class="action-box {priority_class}">
+                    <b>{row['Priority']} — {row['Area']}</b><br><br>
+
+                    <b>Issue:</b>
+                    {row['Issue']}<br>
+
+                    <b>Financial Impact:</b>
+                    {row['Financial Impact']}<br>
+
+                    <b>Recommended Action:</b>
+                    {row['Recommended Action']}<br>
+
+                    <b>Owner:</b>
+                    {row['Owner']}<br>
+
+                    <b>Status:</b>
+                    {row['Status']}
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        st.subheader(
+            "Action Queue"
+        )
+
+        st.dataframe(
+            actions,
+            use_container_width=True,
+            hide_index=True,
         )
 
 
 # ============================================================
-# PAGE 8 — DATA EXPLORER
+# DATA EXPLORER
 # ============================================================
 
-elif page == "📁 Data Explorer":
+elif selected_page == "🔎 Data Explorer":
 
-    st.header("📁 ERP Data Explorer")
+    st.title("🔎 Data Explorer")
 
-    st.write(
-        "Explore the underlying financial transactions "
-        "used by FinSight AI."
+    st.caption(
+        "Explore the underlying ERP-style financial dataset."
     )
 
     c1, c2, c3 = st.columns(3)
@@ -1727,7 +2295,7 @@ elif page == "📁 Data Explorer":
     )
 
     c2.metric(
-        "Fields",
+        "Columns",
         f"{len(filtered_df.columns):,}"
     )
 
@@ -1738,25 +2306,21 @@ elif page == "📁 Data Explorer":
 
     st.divider()
 
-    st.subheader(
-        "Transaction Data"
-    )
-
     st.dataframe(
         filtered_df,
         use_container_width=True,
-        hide_index=True
+        hide_index=True,
     )
 
-    csv = filtered_df.to_csv(
+    csv_data = filtered_df.to_csv(
         index=False
     ).encode("utf-8")
 
     st.download_button(
-        "⬇️ Download Filtered Data",
-        csv,
-        "finsight_filtered_financials.csv",
-        "text/csv"
+        "⬇️ Download Filtered CSV",
+        data=csv_data,
+        file_name="finsight_filtered_financials.csv",
+        mime="text/csv",
     )
 
 
@@ -1766,7 +2330,14 @@ elif page == "📁 Data Explorer":
 
 st.divider()
 
-st.caption(
-    "FinSight AI · Agentic FP&A & ERP Intelligence · "
-    "Portfolio prototype using synthetic ERP-style financial data"
+st.markdown(
+    """
+    <div style="text-align:center; color:#64748b; padding:1rem;">
+        <b>FinSight AI</b> · Agentic FP&A & ERP Intelligence<br>
+        <span style="font-size:0.8rem;">
+        Portfolio prototype using synthetic ERP-style financial data
+        </span>
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
