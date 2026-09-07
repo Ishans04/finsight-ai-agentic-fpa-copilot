@@ -25,101 +25,505 @@ st.set_page_config(
 # CUSTOM CSS
 # ============================================================
 
+# ============================================================
+# PREMIUM FINSIGHT AI DESIGN SYSTEM
+# ============================================================
+
 st.markdown(
     """
 <style>
 
+/* =========================================================
+   GLOBAL APPLICATION
+   ========================================================= */
+
+.stApp {
+    background:
+        radial-gradient(
+            circle at 85% 5%,
+            rgba(37, 99, 235, 0.10),
+            transparent 25%
+        ),
+        radial-gradient(
+            circle at 20% 90%,
+            rgba(124, 58, 237, 0.08),
+            transparent 28%
+        ),
+        #050b14;
+    color: #e8eef8;
+}
+
 .main {
-    background-color: #f6f8fb;
+    background: transparent;
 }
 
 .block-container {
-    padding-top: 1.5rem;
+    max-width: 1500px;
+    padding-top: 1.2rem;
     padding-bottom: 3rem;
 }
 
+
+/* =========================================================
+   SIDEBAR
+   ========================================================= */
+
+section[data-testid="stSidebar"] {
+    background:
+        linear-gradient(
+            180deg,
+            #07101d 0%,
+            #081321 55%,
+            #050b14 100%
+        );
+
+    border-right: 1px solid #17253a;
+}
+
+section[data-testid="stSidebar"] > div {
+    padding-top: 1.2rem;
+}
+
+section[data-testid="stSidebar"] h2 {
+    color: #f8fafc;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+}
+
+section[data-testid="stSidebar"] hr {
+    border-color: #1a2940;
+}
+
+section[data-testid="stSidebar"] label {
+    color: #b7c4d8 !important;
+}
+
+section[data-testid="stSidebar"] .stRadio label {
+    color: #d7e0ee !important;
+}
+
+section[data-testid="stSidebar"] .stRadio label:hover {
+    color: #ffffff !important;
+}
+
+
+/* =========================================================
+   TEXT
+   ========================================================= */
+
+h1, h2, h3, h4 {
+    color: #f1f5f9 !important;
+    font-weight: 750 !important;
+    letter-spacing: -0.5px;
+}
+
+p {
+    color: #94a3b8;
+}
+
+.stCaption {
+    color: #64748b !important;
+}
+
+
+/* =========================================================
+   HERO
+   ========================================================= */
+
 .hero {
-    padding: 1.6rem 1.8rem;
-    border-radius: 18px;
-    background: linear-gradient(
-        135deg,
-        #0f172a 0%,
-        #1e3a5f 52%,
-        #0f766e 100%
-    );
+    position: relative;
+
+    padding: 1.7rem 2rem;
+
+    border-radius: 16px;
+
+    background:
+        radial-gradient(
+            circle at 85% 20%,
+            rgba(6, 182, 212, 0.22),
+            transparent 28%
+        ),
+        linear-gradient(
+            135deg,
+            #0b1730 0%,
+            #10264a 48%,
+            #075e68 100%
+        );
+
+    border: 1px solid #214467;
+
     color: white;
+
     margin-bottom: 1.4rem;
-    box-shadow: 0 8px 25px rgba(15, 23, 42, 0.12);
+
+    box-shadow:
+        0 15px 40px rgba(0, 0, 0, 0.30);
 }
 
 .hero h1 {
-    color: white;
-    font-size: 2.35rem;
-    margin: 0 0 0.3rem 0;
+    color: #ffffff !important;
+    font-size: 2.35rem !important;
+    margin: 0 0 0.35rem 0;
+    font-weight: 800 !important;
 }
 
 .hero p {
-    color: #dbeafe;
+    color: #cbd5e1 !important;
     margin: 0;
     font-size: 1rem;
 }
 
-.insight-box {
-    padding: 1rem 1.2rem;
-    border-radius: 12px;
-    background: #eff6ff;
-    border-left: 5px solid #2563eb;
-    margin-bottom: 0.9rem;
+
+/* =========================================================
+   KPI CARDS
+   ========================================================= */
+
+div[data-testid="stMetric"] {
+    background:
+        linear-gradient(
+            145deg,
+            #0c1727,
+            #091321
+        ) !important;
+
+    border: 1px solid #1b3049 !important;
+
+    border-radius: 13px !important;
+
+    padding: 1rem 1.05rem !important;
+
+    min-height: 105px;
+
+    box-shadow:
+        0 7px 20px rgba(0, 0, 0, 0.22);
+
+    transition:
+        transform 0.18s ease,
+        border-color 0.18s ease;
 }
+
+div[data-testid="stMetric"]:hover {
+    transform: translateY(-2px);
+    border-color: #315d91 !important;
+}
+
+div[data-testid="stMetricLabel"] {
+    color: #94a3b8 !important;
+}
+
+div[data-testid="stMetricValue"] {
+    color: #f8fafc !important;
+    font-weight: 750 !important;
+}
+
+div[data-testid="stMetricDelta"] {
+    color: #4ade80 !important;
+}
+
+
+/* =========================================================
+   INPUTS / SELECTBOX
+   ========================================================= */
+
+div[data-baseweb="select"] > div {
+    background-color: #081321 !important;
+    border-color: #1c3048 !important;
+    color: #e2e8f0 !important;
+}
+
+div[data-baseweb="input"] {
+    background-color: #081321 !important;
+}
+
+div[data-baseweb="input"] input {
+    color: #e2e8f0 !important;
+}
+
+.stTextInput input {
+    background: #081321 !important;
+    color: #e2e8f0 !important;
+    border: 1px solid #1c3048 !important;
+}
+
+.stTextInput input:focus {
+    border-color: #3b82f6 !important;
+    box-shadow:
+        0 0 0 1px #3b82f6 !important;
+}
+
+
+/* =========================================================
+   BUTTONS
+   ========================================================= */
+
+.stButton > button {
+    background:
+        linear-gradient(
+            135deg,
+            #2563eb,
+            #4f46e5
+        ) !important;
+
+    color: white !important;
+
+    border: 1px solid #4f7cff !important;
+
+    border-radius: 8px !important;
+
+    font-weight: 650 !important;
+
+    padding: 0.55rem 1rem !important;
+
+    box-shadow:
+        0 5px 15px rgba(37, 99, 235, 0.22);
+}
+
+.stButton > button:hover {
+    border-color: #7dd3fc !important;
+
+    transform: translateY(-1px);
+
+    box-shadow:
+        0 8px 22px rgba(37, 99, 235, 0.32);
+}
+
+
+/* =========================================================
+   DATAFRAMES / TABLES
+   ========================================================= */
+
+div[data-testid="stDataFrame"] {
+    border: 1px solid #1b3049;
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+div[data-testid="stDataFrame"] iframe {
+    background: #081321;
+}
+
+
+/* =========================================================
+   TABS
+   ========================================================= */
+
+button[data-baseweb="tab"] {
+    color: #94a3b8 !important;
+}
+
+button[data-baseweb="tab"][aria-selected="true"] {
+    color: #60a5fa !important;
+}
+
+
+/* =========================================================
+   DIVIDERS
+   ========================================================= */
+
+hr {
+    border-color: #1a2940 !important;
+}
+
+
+/* =========================================================
+   INSIGHT BOX
+   ========================================================= */
+
+.insight-box {
+    padding: 1.1rem 1.25rem;
+
+    border-radius: 12px;
+
+    background:
+        linear-gradient(
+            145deg,
+            #0c1a2c,
+            #0a1524
+        );
+
+    border: 1px solid #21466d;
+
+    border-left: 4px solid #3b82f6;
+
+    margin-bottom: 0.9rem;
+
+    color: #cbd5e1;
+
+    box-shadow:
+        0 8px 25px rgba(0, 0, 0, 0.18);
+}
+
+
+/* =========================================================
+   ACTION BOX
+   ========================================================= */
 
 .action-box {
     padding: 1rem 1.2rem;
-    border-radius: 12px;
-    background: white;
-    border: 1px solid #e2e8f0;
-    margin-bottom: 0.9rem;
+
+    border-radius: 11px;
+
+    background:
+        linear-gradient(
+            145deg,
+            #0b1625,
+            #09131f
+        );
+
+    border: 1px solid #1c3048;
+
+    margin-bottom: 0.8rem;
+
+    color: #cbd5e1;
+
+    box-shadow:
+        0 6px 18px rgba(0, 0, 0, 0.18);
 }
+
+
+/* =========================================================
+   SECTION BOX
+   ========================================================= */
 
 .section-box {
-    padding: 1rem 1.2rem;
+    padding: 1.1rem 1.2rem;
+
     border-radius: 12px;
-    background: white;
-    border: 1px solid #e2e8f0;
+
+    background:
+        linear-gradient(
+            145deg,
+            #0d1929,
+            #091321
+        );
+
+    border: 1px solid #1c3048;
+
     margin-bottom: 1rem;
+
+    color: #cbd5e1;
+
+    min-height: 145px;
+
+    box-shadow:
+        0 7px 20px rgba(0, 0, 0, 0.18);
 }
 
+
+/* =========================================================
+   STATUS BOXES
+   ========================================================= */
+
 .status-good {
-    padding: 0.8rem 1rem;
+    padding: 0.9rem 1rem;
+
     border-radius: 10px;
-    background: #ecfdf5;
-    border-left: 5px solid #16a34a;
+
+    background: #082016;
+
+    border-left: 4px solid #22c55e;
+
+    color: #bbf7d0;
 }
 
 .status-watch {
-    padding: 0.8rem 1rem;
+    padding: 0.9rem 1rem;
+
     border-radius: 10px;
-    background: #fffbeb;
-    border-left: 5px solid #f59e0b;
+
+    background: #211b08;
+
+    border-left: 4px solid #f59e0b;
+
+    color: #fde68a;
 }
 
 .status-critical {
-    padding: 0.8rem 1rem;
+    padding: 0.9rem 1rem;
+
     border-radius: 10px;
-    background: #fef2f2;
-    border-left: 5px solid #dc2626;
+
+    background: #260d12;
+
+    border-left: 4px solid #ef4444;
+
+    color: #fecaca;
 }
 
-.small-muted {
+
+/* =========================================================
+   FILE UPLOADER
+   ========================================================= */
+
+section[data-testid="stFileUploaderDropzone"] {
+    background: #081321 !important;
+    border: 1px dashed #29415f !important;
+    border-radius: 10px !important;
+}
+
+section[data-testid="stFileUploaderDropzone"] span {
+    color: #94a3b8 !important;
+}
+
+
+/* =========================================================
+   ALERTS
+   ========================================================= */
+
+div[data-testid="stAlert"] {
+    border-radius: 10px !important;
+}
+
+
+/* =========================================================
+   EXPANDERS
+   ========================================================= */
+
+div[data-testid="stExpander"] {
+    background: #081321 !important;
+    border: 1px solid #1b3049 !important;
+    border-radius: 10px !important;
+}
+
+
+/* =========================================================
+   FOOTER
+   ========================================================= */
+
+.finsight-footer {
+    margin-top: 2rem;
+
+    padding: 1rem;
+
+    border-top: 1px solid #1a2940;
+
+    text-align: center;
+
     color: #64748b;
-    font-size: 0.85rem;
+
+    font-size: 0.8rem;
 }
 
-div[data-testid="stMetric"] {
-    background: white;
-    border: 1px solid #e2e8f0;
-    padding: 0.8rem;
-    border-radius: 12px;
-    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+
+/* =========================================================
+   SCROLLBAR
+   ========================================================= */
+
+::-webkit-scrollbar {
+    width: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: #050b14;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #24364e;
+    border-radius: 8px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #35577f;
 }
 
 </style>
