@@ -600,23 +600,81 @@ elif page == "AI CFO":
 
     if question:
         q = question.lower()
-        if "region" in q or "business unit" in q:
-            temp = view.groupby("Region", as_index=False).agg(Budget=("Budget USD", "sum"), Actual=("Actual USD", "sum"))
-            temp["Variance"] = temp["Actual"] - temp["Budget"]
-            top = temp.sort_values("Variance", ascending=False).iloc[0]
-            st.success(f"{top['Region']} is the largest unfavorable regional variance at {money_usd(top['Variance'])}.")
-        elif "department" in q:
-            temp = view.groupby("Department", as_index=False).agg(Budget=("Budget USD", "sum"), Actual=("Actual USD", "sum"))
-            temp["Variance"] = temp["Actual"] - temp["Budget"]
-            top = temp.sort_values("Variance", ascending=False).iloc[0]
-            st.success(f"{top['Department']} is the largest unfavorable departmental variance at {money_usd(top['Variance'])}.")
-        elif "cost" in q or "budget" in q or "variance" in q:
-            temp = view.groupby("Cost Category", as_index=False).agg(Budget=("Budget USD", "sum"), Actual=("Actual USD", "sum"))
-            temp["Variance"] = temp["Actual"] - temp["Budget"]
-            top = temp.sort_values("Variance", ascending=False).iloc[0]
-            st.success(f"{top['Cost Category']} is the largest unfavorable cost driver at {money_usd(top['Variance'])}.")
+        q_view = view.copy()
+        applied_filters = []
+
+        # Detect named dimensions in the user's question and apply them
+        # before calculating the requested answer. This enables chained
+        # investigations such as Region -> Cost Category -> Department.
+        for region_name in sorted(df["Region"].dropna().astype(str).unique(), key=len, reverse=True):
+            if region_name.lower() in q:
+                q_view = q_view[q_view["Region"].astype(str).str.lower() == region_name.lower()]
+                applied_filters.append(f"Region={region_name}")
+                break
+
+        for country_name in sorted(df["Country"].dropna().astype(str).unique(), key=len, reverse=True):
+            if country_name.lower() in q:
+                q_view = q_view[q_view["Country"].astype(str).str.lower() == country_name.lower()]
+                applied_filters.append(f"Country={country_name}")
+                break
+
+        for category_name in sorted(df["Cost Category"].dropna().astype(str).unique(), key=len, reverse=True):
+            if category_name.lower() in q:
+                q_view = q_view[q_view["Cost Category"].astype(str).str.lower() == category_name.lower()]
+                applied_filters.append(f"Cost Category={category_name}")
+                break
+
+        if q_view.empty:
+            st.warning("No transactions matched the dimensions detected in the question.")
         else:
-            st.success(f"The current filtered portfolio has {money_usd(revenue)} revenue, {money_usd(actual)} actual cost and {pct(margin)} margin.")
+            if "department" in q:
+                temp = q_view.groupby("Department", as_index=False).agg(
+                    Budget=("Budget USD", "sum"),
+                    Actual=("Actual USD", "sum"),
+                )
+                temp["Variance"] = temp["Actual"] - temp["Budget"]
+                top = temp.sort_values("Variance", ascending=False).iloc[0]
+
+                scope = ", ".join(applied_filters) if applied_filters else "current filtered view"
+                st.success(
+                    f"Within {scope}, {top['Department']} is the largest unfavorable "
+                    f"departmental variance at {money_usd(top['Variance'])}."
+                )
+
+            elif "region" in q or "business unit" in q:
+                temp = q_view.groupby("Region", as_index=False).agg(
+                    Budget=("Budget USD", "sum"),
+                    Actual=("Actual USD", "sum"),
+                )
+                temp["Variance"] = temp["Actual"] - temp["Budget"]
+                top = temp.sort_values("Variance", ascending=False).iloc[0]
+
+                scope = ", ".join(applied_filters) if applied_filters else "current filtered view"
+                st.success(
+                    f"Within {scope}, {top['Region']} is the largest unfavorable "
+                    f"regional variance at {money_usd(top['Variance'])}."
+                )
+
+            elif "cost" in q or "cost category" in q or "budget" in q or "variance" in q:
+                temp = q_view.groupby("Cost Category", as_index=False).agg(
+                    Budget=("Budget USD", "sum"),
+                    Actual=("Actual USD", "sum"),
+                )
+                temp["Variance"] = temp["Actual"] - temp["Budget"]
+                top = temp.sort_values("Variance", ascending=False).iloc[0]
+
+                scope = ", ".join(applied_filters) if applied_filters else "current filtered view"
+                st.success(
+                    f"Within {scope}, {top['Cost Category']} is the largest unfavorable "
+                    f"cost driver at {money_usd(top['Variance'])}."
+                )
+
+            else:
+                st.success(
+                    f"The current investigation scope has {money_usd(q_view['Revenue USD'].sum())} "
+                    f"revenue, {money_usd(q_view['Actual USD'].sum())} actual cost and "
+                    f"{pct(q_view['Profit USD'].sum() / q_view['Revenue USD'].sum() * 100 if q_view['Revenue USD'].sum() else 0)} margin."
+                )
 
 
 # ============================================================
