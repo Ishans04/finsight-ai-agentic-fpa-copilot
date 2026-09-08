@@ -167,7 +167,9 @@ def find_repo_csv():
 
     candidates = [
         pathlib.Path("synthetic_erp_financials.csv"),
+        pathlib.Path("synthetic_erp_financials_global_v3.csv"),
         pathlib.Path("synthetic_erp_financials_global_v2.csv"),
+        pathlib.Path("data/synthetic_erp_financials_global_v3.csv"),
         pathlib.Path("data/synthetic_erp_financials.csv"),
         pathlib.Path("data/synthetic_erp_financials_global_v2.csv"),
     ]
@@ -486,14 +488,38 @@ if page == "Executive Dashboard":
     st.subheader("Executive Dashboard")
     st.caption("CFO view of revenue, profitability, cash, budget performance and enterprise risk.")
 
-    cash_balance = (
-        float(view["Closing Cash"].iloc[0])
-        if "Closing Cash" in view.columns
-        else float((view["Revenue USD"] - view["Actual USD"]).sum())
-    )
-    gross_profit = float(view["Gross Profit"].iloc[0]) if "Gross Profit" in view.columns else 0.0
-    ebitda = float(view["EBITDA"].iloc[0]) if "EBITDA" in view.columns else 0.0
-    pat = float(view["PAT"].iloc[0]) if "PAT" in view.columns else 0.0
+    # Management-layer fields in V3 are monthly values repeated across transaction rows.
+    # Never sum those repeated columns and never take only the first transaction row.
+    mgmt = view.copy()
+    mgmt["Month"] = pd.to_datetime(mgmt["Date"], errors="coerce").dt.to_period("M").dt.to_timestamp()
+
+    if "Cost Type" in mgmt.columns:
+        cogs_total = float(mgmt.loc[mgmt["Cost Type"].eq("COGS"), "Actual USD"].sum())
+        opex_total = float(mgmt.loc[mgmt["Cost Type"].eq("Opex"), "Actual USD"].sum())
+    else:
+        cogs_total = 0.0
+        opex_total = float(actual)
+
+    # V3 management measures are stored once per month (but repeated per row).
+    if "Gross Profit" in mgmt.columns:
+        gross_profit = float(mgmt.groupby("Month")["Gross Profit"].first().sum())
+    else:
+        gross_profit = float(revenue - cogs_total)
+
+    if "EBITDA" in mgmt.columns:
+        ebitda = float(mgmt.groupby("Month")["EBITDA"].first().sum())
+    else:
+        ebitda = float(gross_profit - opex_total)
+
+    if "PAT" in mgmt.columns:
+        pat = float(mgmt.groupby("Month")["PAT"].first().sum())
+    else:
+        pat = float(ebitda - revenue * 0.04)
+
+    if "Closing Cash" in mgmt.columns:
+        cash_balance = float(mgmt.groupby("Month")["Closing Cash"].first().sort_index().iloc[-1])
+    else:
+        cash_balance = float((mgmt.groupby("Month")["Revenue USD"].sum() - mgmt.groupby("Month")["Actual USD"].sum()).cumsum().iloc[-1])
 
     gross_margin = gross_profit / revenue * 100 if revenue else 0
     ebitda_margin = ebitda / revenue * 100 if revenue else 0
