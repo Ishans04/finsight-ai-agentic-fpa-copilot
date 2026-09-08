@@ -484,74 +484,172 @@ def chart_layout(fig, height=370):
 # ============================================================
 if page == "Executive Dashboard":
     st.subheader("Executive Dashboard")
-    st.caption("Leadership view of profitability, cost performance, liquidity and risk.")
+    st.caption("CFO view of revenue, profitability, cash, budget performance and enterprise risk.")
 
-    cols = st.columns(5)
+    cash_balance = float(view["Closing Cash"].iloc[0]) if "Closing Cash" in view.columns else 0.0
+    gross_profit = float(view["Gross Profit"].iloc[0]) if "Gross Profit" in view.columns else 0.0
+    ebitda = float(view["EBITDA"].iloc[0]) if "EBITDA" in view.columns else 0.0
+    pat = float(view["PAT"].iloc[0]) if "PAT" in view.columns else 0.0
+
+    gross_margin = gross_profit / revenue * 100 if revenue else 0
+    ebitda_margin = ebitda / revenue * 100 if revenue else 0
+    pat_margin = pat / revenue * 100 if revenue else 0
+
+    anomaly_count = int(view["Anomaly Flag"].sum())
+    variance_risk = min(abs(variance_pct) * 8, 55)
+    anomaly_risk = min(anomaly_count / max(len(view), 1) * 100 * 1.8, 35)
+    risk_score = min(max(variance_risk + anomaly_risk, 0), 100)
+
+    # Six CFO-level KPIs
+    kpi_cols = st.columns(6)
     cards = [
-        ("Revenue", money_usd(revenue), "Consolidated group revenue"),
-        ("Actual Cost", money_usd(actual), "Actual spend"),
-        ("Budget", money_usd(budget), "Approved / modeled plan"),
-        ("Variance", money_usd(variance), "Actual minus budget"),
-        ("Profit Margin", pct(margin), "Revenue less actual cost"),
+        ("Revenue", money_usd(revenue), "Group revenue"),
+        ("Gross Profit", money_usd(gross_profit), f"Gross margin {gross_margin:.1f}%"),
+        ("EBITDA", money_usd(ebitda), f"EBITDA margin {ebitda_margin:.1f}%"),
+        ("Cash Balance", money_usd(cash_balance), "Closing modeled cash"),
+        ("EBITDA Margin", pct(ebitda_margin), "Operating profitability"),
+        ("Risk Score", f"{risk_score:.0f}/100", f"{anomaly_count:,} anomaly flags"),
     ]
-
-    for col, (label, value, note) in zip(cols, cards):
+    for col, (label, value, note) in zip(kpi_cols, cards):
         with col:
-            html_block(f'<div class="kpi"><div class="kpi-label">{label}</div><div class="kpi-value">{value}</div><div class="kpi-note">{note}</div></div>')
+            html_block(
+                f'<div class="kpi"><div class="kpi-label">{label}</div>'
+                f'<div class="kpi-value">{value}</div>'
+                f'<div class="kpi-note">{note}</div></div>'
+            )
 
     st.write("")
-    left, right = st.columns([1.7, 1])
 
-    monthly = view.copy()
-    monthly["Month"] = pd.to_datetime(monthly["Date"]).dt.to_period("M").dt.to_timestamp()
-    monthly = monthly.groupby("Month", as_index=False)[
-        ["Revenue USD", "Budget USD", "Actual USD", "Profit USD"]
-    ].sum()
+    # Monthly management view. Use first value for management metrics because
+    # V3 stores monthly P&L measures on each transaction row.
+    monthly_base = view.copy()
+    monthly_base["Month"] = pd.to_datetime(monthly_base["Date"]).dt.to_period("M").dt.to_timestamp()
+
+    monthly = monthly_base.groupby("Month", as_index=False).agg(
+        Revenue=("Revenue USD", "sum"),
+        Budget=("Budget USD", "sum"),
+        Actual_Cost=("Actual USD", "sum"),
+        Gross_Profit=("Gross Profit", "first"),
+        EBITDA=("EBITDA", "first"),
+        PAT=("PAT", "first"),
+        Cash=("Closing Cash", "first"),
+    )
+
+    left, right = st.columns([1.65, 1])
 
     with left:
-        st.subheader("Revenue vs Budget vs Actual Cost")
+        st.subheader("Revenue vs Budget")
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=monthly["Month"], y=monthly["Revenue USD"], mode="lines+markers", name="Revenue"))
-        fig.add_trace(go.Scatter(x=monthly["Month"], y=monthly["Budget USD"], mode="lines", name="Budget"))
-        fig.add_trace(go.Scatter(x=monthly["Month"], y=monthly["Actual USD"], mode="lines+markers", name="Actual Cost"))
-        chart_layout(fig)
+        fig.add_trace(go.Scatter(x=monthly["Month"], y=monthly["Revenue"], mode="lines+markers", name="Revenue"))
+        fig.add_trace(go.Scatter(x=monthly["Month"], y=monthly["Budget"], mode="lines", name="Budget"))
+        chart_layout(fig, height=350)
+        fig.update_yaxes(tickprefix="$", tickformat="~s")
         st.plotly_chart(fig, use_container_width=True)
 
     with right:
         st.subheader("P&L Summary")
-        pnl = pd.DataFrame({
-            "Metric": ["Revenue", "Actual Cost", "Profit", "Profit Margin", "Budget Variance"],
-            "Value": [
-                money_usd(revenue),
-                money_usd(actual),
-                money_usd(profit),
-                pct(margin),
-                money_usd(variance),
-            ],
-        })
+        pnl = pd.DataFrame([
+            ["Revenue", money_usd(revenue)],
+            ["Gross Profit", money_usd(gross_profit)],
+            ["Gross Margin", pct(gross_margin)],
+            ["EBITDA", money_usd(ebitda)],
+            ["EBITDA Margin", pct(ebitda_margin)],
+            ["PAT", money_usd(pat)],
+            ["PAT Margin", pct(pat_margin)],
+        ], columns=["Metric", "Value"])
         st.dataframe(pnl, use_container_width=True, hide_index=True)
 
-    st.subheader("Business Unit / Region Performance")
-    bu = view.groupby("Region", as_index=False).agg(
-        Revenue=("Revenue USD", "sum"),
-        Budget=("Budget USD", "sum"),
-        Actual=("Actual USD", "sum"),
-        Profit=("Profit USD", "sum"),
-    )
-    bu["Variance"] = bu["Actual"] - bu["Budget"]
-    bu["Margin %"] = np.where(bu["Revenue"] != 0, bu["Profit"] / bu["Revenue"] * 100, 0)
-    st.dataframe(
-        bu.assign(
-            Revenue=bu["Revenue"].map(money_usd),
-            Budget=bu["Budget"].map(money_usd),
-            Actual=bu["Actual"].map(money_usd),
-            Profit=bu["Profit"].map(money_usd),
-            Variance=bu["Variance"].map(money_usd),
-            **{"Margin %": bu["Margin %"].map(pct)}
-        ),
-        use_container_width=True,
-        hide_index=True,
-    )
+    st.subheader("Profitability Trend")
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=monthly["Month"], y=monthly["Gross_Profit"], mode="lines+markers", name="Gross Profit"))
+    fig.add_trace(go.Scatter(x=monthly["Month"], y=monthly["EBITDA"], mode="lines+markers", name="EBITDA"))
+    fig.add_trace(go.Scatter(x=monthly["Month"], y=monthly["PAT"], mode="lines", name="PAT"))
+    chart_layout(fig, height=330)
+    fig.update_yaxes(tickprefix="$", tickformat="~s")
+    st.plotly_chart(fig, use_container_width=True)
+
+    cash_col, region_col = st.columns([1.15, 1])
+
+    with cash_col:
+        st.subheader("Cash Flow Overview")
+        cash_chart = go.Figure()
+        cash_chart.add_trace(go.Scatter(x=monthly["Month"], y=monthly["Cash"], mode="lines+markers", name="Closing Cash"))
+        chart_layout(cash_chart, height=300)
+        cash_chart.update_yaxes(tickprefix="$", tickformat="~s")
+        st.plotly_chart(cash_chart, use_container_width=True)
+
+    with region_col:
+        st.subheader("Regional Performance")
+        regional = view.groupby("Region", as_index=False).agg(
+            Revenue=("Revenue USD", "sum"),
+            Budget=("Budget USD", "sum"),
+            Actual=("Actual USD", "sum"),
+        )
+        regional["Variance"] = regional["Actual"] - regional["Budget"]
+
+        # Regional EBITDA is taken from the monthly management layer and
+        # allocated by each region's revenue share for a useful management view.
+        regional["Revenue Share"] = regional["Revenue"] / max(regional["Revenue"].sum(), 1)
+        regional["EBITDA"] = ebitda * regional["Revenue Share"]
+        regional["EBITDA Margin %"] = regional["EBITDA"] / regional["Revenue"] * 100
+
+        display = regional.drop(columns=["Revenue Share"]).copy()
+        for c in ["Revenue", "Budget", "Actual", "Variance", "EBITDA"]:
+            display[c] = display[c].map(money_usd)
+        display["EBITDA Margin %"] = regional["EBITDA Margin %"].map(pct)
+        st.dataframe(display, use_container_width=True, hide_index=True)
+
+    cost_col, action_col = st.columns([1.15, 1])
+
+    with cost_col:
+        st.subheader("Top Cost Drivers")
+        cost = view.groupby("Cost Category", as_index=False).agg(
+            Budget=("Budget USD", "sum"),
+            Actual=("Actual USD", "sum"),
+        )
+        cost["Variance"] = cost["Actual"] - cost["Budget"]
+        top_cost = cost.sort_values("Variance", ascending=False).head(8)
+
+        fig = px.bar(
+            top_cost.sort_values("Variance"),
+            x="Variance",
+            y="Cost Category",
+            orientation="h",
+            title="Unfavorable Variance",
+        )
+        chart_layout(fig, height=330)
+        fig.update_xaxes(tickprefix="$", tickformat="~s")
+        st.plotly_chart(fig, use_container_width=True)
+
+    with action_col:
+        st.subheader("AI CFO Recommended Actions")
+
+        if variance > 0:
+            html_block(
+                f'<div class="danger"><b>🔴 Cost Control</b><br>'
+                f'Actual cost is {money_usd(variance)} above budget.<br>'
+                f'<span class="small">Owner: Finance Controller · Investigate the largest cost drivers.</span></div>'
+            )
+        else:
+            html_block(
+                f'<div class="insight"><b>🟢 Cost Performance</b><br>'
+                f'Actual cost is {money_usd(abs(variance))} below budget.<br>'
+                f'<span class="small">Owner: FP&A · Validate sustainability of the savings.</span></div>'
+            )
+
+        if anomaly_count:
+            html_block(
+                f'<div class="warning"><b>🟠 Risk Investigation</b><br>'
+                f'{anomaly_count:,} transactions are flagged for review.<br>'
+                f'<span class="small">Owner: Controller · Prioritize high-value anomalies.</span></div>'
+            )
+
+        html_block(
+            f'<div class="insight"><b>🟢 Profitability</b><br>'
+            f'Gross margin is {pct(gross_margin)}, EBITDA margin is {pct(ebitda_margin)}, '
+            f'and PAT margin is {pct(pat_margin)}.<br>'
+            f'<span class="small">CFO focus: protect profitable growth and cash generation.</span></div>'
+        )
 
 
 # ============================================================
