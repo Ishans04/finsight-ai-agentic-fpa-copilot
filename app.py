@@ -486,7 +486,11 @@ if page == "Executive Dashboard":
     st.subheader("Executive Dashboard")
     st.caption("CFO view of revenue, profitability, cash, budget performance and enterprise risk.")
 
-    cash_balance = float(view["Closing Cash"].iloc[0]) if "Closing Cash" in view.columns else 0.0
+    cash_balance = (
+        float(view["Closing Cash"].iloc[0])
+        if "Closing Cash" in view.columns
+        else float((view["Revenue USD"] - view["Actual USD"]).sum())
+    )
     gross_profit = float(view["Gross Profit"].iloc[0]) if "Gross Profit" in view.columns else 0.0
     ebitda = float(view["EBITDA"].iloc[0]) if "EBITDA" in view.columns else 0.0
     pat = float(view["PAT"].iloc[0]) if "PAT" in view.columns else 0.0
@@ -525,14 +529,54 @@ if page == "Executive Dashboard":
     monthly_base = view.copy()
     monthly_base["Month"] = pd.to_datetime(monthly_base["Date"]).dt.to_period("M").dt.to_timestamp()
 
+    # Build the monthly management view defensively. Some uploaded V3 files
+    # may not contain every management-layer column.
     monthly = monthly_base.groupby("Month", as_index=False).agg(
         Revenue=("Revenue USD", "sum"),
         Budget=("Budget USD", "sum"),
         Actual_Cost=("Actual USD", "sum"),
-        Gross_Profit=("Gross Profit", "first"),
-        EBITDA=("EBITDA", "first"),
-        PAT=("PAT", "first"),
-        Cash=("Closing Cash", "first"),
+    )
+
+    if "Cost Type" in monthly_base.columns:
+        cogs_month = (
+            monthly_base.loc[monthly_base["Cost Type"].eq("COGS")]
+            .groupby("Month")["Actual USD"].sum()
+        )
+        opex_month = (
+            monthly_base.loc[monthly_base["Cost Type"].eq("Opex")]
+            .groupby("Month")["Actual USD"].sum()
+        )
+        monthly["COGS"] = monthly["Month"].map(cogs_month).fillna(0)
+        monthly["Opex"] = monthly["Month"].map(opex_month).fillna(0)
+    else:
+        monthly["COGS"] = 0.0
+        monthly["Opex"] = monthly["Actual_Cost"]
+
+    monthly["Gross_Profit"] = monthly["Revenue"] - monthly["COGS"]
+    monthly["EBITDA"] = monthly["Gross_Profit"] - monthly["Opex"]
+
+    if "Gross Profit" in monthly_base.columns:
+        gp = monthly_base.groupby("Month")["Gross Profit"].first()
+        monthly["Gross_Profit"] = monthly["Month"].map(gp).fillna(monthly["Gross_Profit"])
+
+    if "EBITDA" in monthly_base.columns:
+        eb = monthly_base.groupby("Month")["EBITDA"].first()
+        monthly["EBITDA"] = monthly["Month"].map(eb).fillna(monthly["EBITDA"])
+
+    if "PAT" in monthly_base.columns:
+        pat_series = monthly_base.groupby("Month")["PAT"].first()
+        monthly["PAT"] = monthly["Month"].map(pat_series)
+    else:
+        monthly["PAT"] = np.nan
+
+    if "Closing Cash" in monthly_base.columns:
+        cash_series = monthly_base.groupby("Month")["Closing Cash"].first()
+        monthly["Cash"] = monthly["Month"].map(cash_series)
+    else:
+        monthly["Cash"] = (monthly["Revenue"] - monthly["Actual_Cost"]).cumsum()
+
+    monthly["PAT"] = monthly["PAT"].fillna(
+        monthly["EBITDA"] - monthly["Revenue"] * 0.04
     )
 
     left, right = st.columns([1.65, 1])
