@@ -362,11 +362,22 @@ with st.sidebar:
         "Data Mapping",
         "Data Quality",
         "Alerts & Notifications",
+        "Ratio Analysis",
         "Settings",
         "Audit Logs",
     ]
 
     page = st.radio("Command Center", modules, index=0)
+
+    market_uploaded = None
+    if page == "Ratio Analysis":
+        st.divider()
+        market_uploaded = st.file_uploader(
+            "Upload Market CSV (optional)",
+            type=["csv"],
+            key="market_csv",
+            help="Optional price history with Date, Asset Price and Benchmark Price columns for Alpha, Beta and technical analytics.",
+        )
 
     st.divider()
     currency_view = st.selectbox(
@@ -1270,6 +1281,342 @@ elif page == "Alerts & Notifications":
         hide_index=True,
     )
 
+
+
+# ============================================================
+# RATIO ANALYSIS
+# ============================================================
+elif page == "Ratio Analysis":
+    st.subheader("Ratio Analysis")
+    st.caption("CFO-grade profitability and operating ratios, with separate market and technical analytics.")
+
+    # --------------------------------------------------------
+    # Management metrics: V3 stores monthly P&L measures repeated
+    # across transaction rows, so use one value per month.
+    # --------------------------------------------------------
+    ratio_df = view.copy()
+    ratio_df["Month"] = pd.to_datetime(ratio_df["Date"], errors="coerce").dt.to_period("M").dt.to_timestamp()
+
+    revenue_r = float(ratio_df["Revenue USD"].sum())
+    actual_cost_r = float(ratio_df["Actual USD"].sum())
+
+    if "Cost Type" in ratio_df.columns:
+        cogs_r = float(ratio_df.loc[ratio_df["Cost Type"].eq("COGS"), "Actual USD"].sum())
+        opex_r = float(ratio_df.loc[ratio_df["Cost Type"].eq("Opex"), "Actual USD"].sum())
+    else:
+        cogs_r = 0.0
+        opex_r = actual_cost_r
+
+    if "Gross Profit" in ratio_df.columns:
+        gross_profit_r = float(ratio_df.groupby("Month")["Gross Profit"].first().sum())
+    else:
+        gross_profit_r = revenue_r - cogs_r
+
+    if "EBITDA" in ratio_df.columns:
+        ebitda_r = float(ratio_df.groupby("Month")["EBITDA"].first().sum())
+    else:
+        ebitda_r = gross_profit_r - opex_r
+
+    if "EBIT" in ratio_df.columns:
+        ebit_r = float(ratio_df.groupby("Month")["EBIT"].first().sum())
+    else:
+        ebit_r = ebitda_r
+
+    if "PAT" in ratio_df.columns:
+        pat_r = float(ratio_df.groupby("Month")["PAT"].first().sum())
+    else:
+        pat_r = ebitda_r - revenue_r * 0.04
+
+    tabs = st.tabs([
+        "Financial Ratios",
+        "Liquidity & Leverage",
+        "Working Capital",
+        "Market Analytics",
+        "Technical Analytics",
+    ])
+
+    # --------------------------------------------------------
+    # FINANCIAL RATIOS
+    # --------------------------------------------------------
+    with tabs[0]:
+        st.markdown("### Profitability & Operating Ratios")
+        ratios = pd.DataFrame([
+            ["Gross Margin", gross_profit_r / revenue_r * 100 if revenue_r else 0, "Gross Profit / Revenue", "ERP P&L"],
+            ["EBITDA Margin", ebitda_r / revenue_r * 100 if revenue_r else 0, "EBITDA / Revenue", "ERP P&L"],
+            ["EBIT Margin", ebit_r / revenue_r * 100 if revenue_r else 0, "EBIT / Revenue", "ERP P&L"],
+            ["PAT Margin", pat_r / revenue_r * 100 if revenue_r else 0, "PAT / Revenue", "ERP P&L"],
+            ["COGS / Revenue", cogs_r / revenue_r * 100 if revenue_r else 0, "COGS / Revenue", "ERP P&L"],
+            ["Opex / Revenue", opex_r / revenue_r * 100 if revenue_r else 0, "Opex / Revenue", "ERP P&L"],
+        ], columns=["Ratio", "Value", "Formula", "Data Source"])
+
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("Gross Margin", pct(ratios.loc[0, "Value"]))
+        k2.metric("EBITDA Margin", pct(ratios.loc[1, "Value"]))
+        k3.metric("PAT Margin", pct(ratios.loc[3, "Value"]))
+        k4.metric("Opex / Revenue", pct(ratios.loc[5, "Value"]))
+
+        display = ratios.copy()
+        display["Value"] = display["Value"].map(pct)
+        st.dataframe(display, use_container_width=True, hide_index=True)
+
+        st.markdown("### Margin Trend")
+        trend = ratio_df.groupby("Month", as_index=False).agg(Revenue=("Revenue USD", "sum"))
+        if "Gross Profit" in ratio_df.columns:
+            gp = ratio_df.groupby("Month")["Gross Profit"].first()
+            trend["Gross Profit"] = trend["Month"].map(gp)
+        else:
+            trend["Gross Profit"] = trend["Revenue"] - ratio_df.loc[ratio_df["Cost Type"].eq("COGS")].groupby("Month")["Actual USD"].sum().reindex(trend["Month"]).fillna(0).values if "Cost Type" in ratio_df.columns else 0
+        if "EBITDA" in ratio_df.columns:
+            trend["EBITDA"] = trend["Month"].map(ratio_df.groupby("Month")["EBITDA"].first())
+        else:
+            trend["EBITDA"] = np.nan
+        trend["Gross Margin %"] = np.where(trend["Revenue"] != 0, trend["Gross Profit"] / trend["Revenue"] * 100, 0)
+        trend["EBITDA Margin %"] = np.where(trend["Revenue"] != 0, trend["EBITDA"] / trend["Revenue"] * 100, 0)
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=trend["Month"], y=trend["Gross Margin %"], mode="lines+markers", name="Gross Margin"))
+        fig.add_trace(go.Scatter(x=trend["Month"], y=trend["EBITDA Margin %"], mode="lines+markers", name="EBITDA Margin"))
+        chart_layout(fig, height=330)
+        fig.update_yaxes(ticksuffix="%")
+        st.plotly_chart(fig, use_container_width=True)
+
+    # --------------------------------------------------------
+    # LIQUIDITY & LEVERAGE
+    # --------------------------------------------------------
+    with tabs[1]:
+        st.markdown("### Liquidity & Leverage")
+        st.caption("These ratios require balance-sheet accounts. FinSight does not fabricate Current Ratio, Quick Ratio or Debt-to-Equity from P&L data.")
+
+        cash_available = "Closing Cash" in ratio_df.columns
+        interest_available = "Interest / Finance Cost" in ratio_df.columns
+
+        if cash_available:
+            cash_monthly = ratio_df.groupby("Month")["Closing Cash"].first().sort_index()
+            latest_cash = float(cash_monthly.iloc[-1]) if len(cash_monthly) else 0
+        else:
+            latest_cash = 0
+
+        interest_cost = float(ratio_df.groupby("Month")["Interest / Finance Cost"].first().sum()) if interest_available else 0
+        interest_coverage = ebitda_r / interest_cost if interest_cost > 0 else np.nan
+
+        lk1, lk2, lk3 = st.columns(3)
+        lk1.metric("Cash Balance", money_usd(latest_cash) if cash_available else "N/A")
+        lk2.metric("Interest Coverage", f"{interest_coverage:,.1f}x" if np.isfinite(interest_coverage) else "N/A")
+        lk3.metric("Balance Sheet Coverage", "Partial")
+
+        liquidity_rows = [
+            ["Current Ratio", "N/A", "Current Assets / Current Liabilities", "Requires balance sheet"],
+            ["Quick Ratio", "N/A", "Quick Assets / Current Liabilities", "Requires balance sheet"],
+            ["Debt-to-Equity", "N/A", "Total Debt / Equity", "Requires balance sheet"],
+            ["Interest Coverage", f"{interest_coverage:,.1f}x" if np.isfinite(interest_coverage) else "N/A", "EBITDA / Interest", "ERP P&L"],
+            ["Cash Balance", money_usd(latest_cash) if cash_available else "N/A", "Latest Closing Cash", "ERP cash layer" if cash_available else "Unavailable"],
+        ]
+        st.dataframe(pd.DataFrame(liquidity_rows, columns=["Metric", "Value", "Formula", "Availability"]), use_container_width=True, hide_index=True)
+
+        st.info("Production enhancement: connect balance-sheet and treasury data to unlock Current Ratio, Quick Ratio, Debt-to-Equity, ROA and ROE.")
+
+    # --------------------------------------------------------
+    # WORKING CAPITAL
+    # --------------------------------------------------------
+    with tabs[2]:
+        st.markdown("### Working Capital Analytics")
+        has_receivables = "Receivables" in ratio_df.columns
+        has_payables = "Payables" in ratio_df.columns
+        has_due = "Payment Due Date" in ratio_df.columns
+        has_status = "Payment Status" in ratio_df.columns
+
+        if has_receivables or has_payables:
+            receivables = float(ratio_df["Receivables"].sum()) if has_receivables else np.nan
+            payables = float(ratio_df["Payables"].sum()) if has_payables else np.nan
+            st.dataframe(pd.DataFrame([
+                ["Receivables", money_usd(receivables) if np.isfinite(receivables) else "N/A", "Source ERP balance"],
+                ["Payables", money_usd(payables) if np.isfinite(payables) else "N/A", "Source ERP balance"],
+            ], columns=["Metric", "Value", "Availability"]), use_container_width=True, hide_index=True)
+        else:
+            st.warning("Working-capital balances are not present in the current V3 ERP export, so DSO, DPO and Cash Conversion Cycle are not calculated.")
+
+        if has_due and has_status:
+            st.markdown("### Payment Timeliness")
+            pay = ratio_df[["Payment Due Date", "Payment Status"]].copy()
+            pay["Payment Due Date"] = pd.to_datetime(pay["Payment Due Date"], errors="coerce")
+            status_counts = pay["Payment Status"].fillna("Unknown").value_counts().reset_index()
+            status_counts.columns = ["Payment Status", "Transactions"]
+            st.dataframe(status_counts, use_container_width=True, hide_index=True)
+        else:
+            st.info("Payment-status analytics become available when payment due date/status fields are supplied.")
+
+        st.markdown("### Ratio Roadmap")
+        roadmap = pd.DataFrame([
+            ["DSO", "Receivables / Revenue × Days", "Pending balance-sheet data"],
+            ["DPO", "Payables / COGS × Days", "Pending balance-sheet data"],
+            ["Cash Conversion Cycle", "DSO + DIO − DPO", "Pending inventory + AP/AR data"],
+        ], columns=["Metric", "Formula", "Status"])
+        st.dataframe(roadmap, use_container_width=True, hide_index=True)
+
+    # --------------------------------------------------------
+    # MARKET ANALYTICS
+    # --------------------------------------------------------
+    def load_market_data(uploaded_market):
+        if uploaded_market is not None:
+            m = pd.read_csv(uploaded_market)
+        else:
+            m = pd.DataFrame()
+        if m.empty:
+            return m
+        m.columns = [str(c).strip() for c in m.columns]
+        rename = {}
+        for c in m.columns:
+            cl = c.lower().replace("_", " ")
+            if cl in {"date", "datetime", "timestamp"}:
+                rename[c] = "Date"
+            elif cl in {"asset price", "asset", "price", "close", "asset close"}:
+                rename[c] = "Asset Price"
+            elif cl in {"benchmark price", "benchmark", "benchmark close", "index price"}:
+                rename[c] = "Benchmark Price"
+        m = m.rename(columns=rename)
+        if "Date" not in m.columns or "Asset Price" not in m.columns:
+            return pd.DataFrame()
+        m["Date"] = pd.to_datetime(m["Date"], errors="coerce")
+        m["Asset Price"] = pd.to_numeric(m["Asset Price"], errors="coerce")
+        if "Benchmark Price" in m.columns:
+            m["Benchmark Price"] = pd.to_numeric(m["Benchmark Price"], errors="coerce")
+        return m.dropna(subset=["Date", "Asset Price"]).sort_values("Date")
+
+    market = load_market_data(market_uploaded)
+
+    if market.empty:
+        st.markdown("### Market Analytics")
+        st.info("Upload a market CSV in the sidebar to calculate Alpha, Beta, R, R², Sharpe, Sortino, Treynor, Information Ratio, volatility, VaR and maximum drawdown.")
+        st.caption("Expected columns: Date, Asset Price, Benchmark Price. Market analytics are intentionally kept separate from ERP accounting data.")
+    else:
+        market["Asset Return"] = market["Asset Price"].pct_change()
+        has_benchmark = "Benchmark Price" in market.columns
+        if has_benchmark:
+            market["Benchmark Return"] = market["Benchmark Price"].pct_change()
+        ret = market.dropna(subset=["Asset Return"]).copy()
+
+        annual_factor = 252
+        asset_mean = ret["Asset Return"].mean()
+        asset_vol = ret["Asset Return"].std() * np.sqrt(annual_factor)
+        rf = st.number_input("Annual risk-free rate (%)", min_value=0.0, max_value=20.0, value=5.0, step=0.25) / 100
+        daily_rf = (1 + rf) ** (1 / annual_factor) - 1
+
+        beta = np.nan
+        alpha = np.nan
+        corr = np.nan
+        r2 = np.nan
+        tracking_error = np.nan
+        information_ratio = np.nan
+        if has_benchmark:
+            pair = ret.dropna(subset=["Benchmark Return"])
+            if len(pair) > 1 and pair["Benchmark Return"].var() > 0:
+                beta = pair["Asset Return"].cov(pair["Benchmark Return"]) / pair["Benchmark Return"].var()
+                corr = pair["Asset Return"].corr(pair["Benchmark Return"])
+                r2 = corr ** 2 if np.isfinite(corr) else np.nan
+                alpha_daily = pair["Asset Return"].mean() - rf / annual_factor - beta * (pair["Benchmark Return"].mean() - rf / annual_factor)
+                alpha = (1 + alpha_daily) ** annual_factor - 1
+                active = pair["Asset Return"] - pair["Benchmark Return"]
+                tracking_error = active.std() * np.sqrt(annual_factor)
+                information_ratio = active.mean() / active.std() * np.sqrt(annual_factor) if active.std() > 0 else np.nan
+
+        downside = ret.loc[ret["Asset Return"] < daily_rf, "Asset Return"] - daily_rf
+        downside_dev = downside.std() * np.sqrt(annual_factor) if len(downside) > 1 else np.nan
+        sharpe = ((asset_mean - daily_rf) / ret["Asset Return"].std() * np.sqrt(annual_factor)) if ret["Asset Return"].std() > 0 else np.nan
+        sortino = ((asset_mean - daily_rf) / (downside.std()) * np.sqrt(annual_factor)) if len(downside) > 1 and downside.std() > 0 else np.nan
+        treynor = ((asset_mean * annual_factor - rf) / beta) if np.isfinite(beta) and beta != 0 else np.nan
+        var_95 = ret["Asset Return"].quantile(0.05)
+        cvar_95 = ret.loc[ret["Asset Return"] <= var_95, "Asset Return"].mean()
+        wealth = (1 + ret["Asset Return"].fillna(0)).cumprod()
+        drawdown = wealth / wealth.cummax() - 1
+        max_drawdown = drawdown.min()
+
+        mk1, mk2, mk3, mk4 = st.columns(4)
+        mk1.metric("Alpha", f"{alpha*100:.2f}%" if np.isfinite(alpha) else "N/A")
+        mk2.metric("Beta", f"{beta:.2f}" if np.isfinite(beta) else "N/A")
+        mk3.metric("R²", f"{r2:.2f}" if np.isfinite(r2) else "N/A")
+        mk4.metric("Sharpe", f"{sharpe:.2f}" if np.isfinite(sharpe) else "N/A")
+
+        market_metrics = pd.DataFrame([
+            ["Alpha", f"{alpha*100:.2f}%" if np.isfinite(alpha) else "N/A", "Risk-adjusted excess return vs benchmark"],
+            ["Beta", f"{beta:.2f}" if np.isfinite(beta) else "N/A", "Sensitivity to benchmark"],
+            ["R / Correlation", f"{corr:.2f}" if np.isfinite(corr) else "N/A", "Asset vs benchmark correlation"],
+            ["R²", f"{r2:.2f}" if np.isfinite(r2) else "N/A", "Variance explained by benchmark"],
+            ["Sharpe Ratio", f"{sharpe:.2f}" if np.isfinite(sharpe) else "N/A", "Return per unit of total risk"],
+            ["Sortino Ratio", f"{sortino:.2f}" if np.isfinite(sortino) else "N/A", "Return per unit of downside risk"],
+            ["Treynor Ratio", f"{treynor:.2f}" if np.isfinite(treynor) else "N/A", "Return per unit of systematic risk"],
+            ["Information Ratio", f"{information_ratio:.2f}" if np.isfinite(information_ratio) else "N/A", "Active return / tracking error"],
+            ["Annualized Volatility", f"{asset_vol*100:.2f}%", "Standard deviation of returns"],
+            ["VaR 95%", f"{var_95*100:.2f}%", "One-period 95% loss threshold"],
+            ["CVaR 95%", f"{cvar_95*100:.2f}%" if np.isfinite(cvar_95) else "N/A", "Average return beyond VaR"],
+            ["Max Drawdown", f"{max_drawdown*100:.2f}%", "Peak-to-trough decline"],
+        ], columns=["Metric", "Value", "Interpretation"])
+        st.dataframe(market_metrics, use_container_width=True, hide_index=True)
+
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=market["Date"], y=market["Asset Price"], mode="lines", name="Asset"))
+        if has_benchmark:
+            bench_norm = market["Benchmark Price"] / market["Benchmark Price"].dropna().iloc[0] * market["Asset Price"].dropna().iloc[0]
+            fig.add_trace(go.Scatter(x=market["Date"], y=bench_norm, mode="lines", name="Benchmark (normalized)"))
+        chart_layout(fig, height=340)
+        st.plotly_chart(fig, use_container_width=True)
+
+    # --------------------------------------------------------
+    # TECHNICAL ANALYTICS
+    # --------------------------------------------------------
+    with tabs[4]:
+        st.markdown("### Technical Analytics")
+        if market.empty:
+            st.info("Upload market price history to unlock Fibonacci, RSI, MACD, moving averages, Bollinger Bands and support/resistance.")
+        else:
+            tech = market[["Date", "Asset Price"]].copy().dropna().sort_values("Date")
+            price = tech["Asset Price"]
+            tech["SMA 20"] = price.rolling(20).mean()
+            tech["SMA 50"] = price.rolling(50).mean()
+            ema12 = price.ewm(span=12, adjust=False).mean()
+            ema26 = price.ewm(span=26, adjust=False).mean()
+            tech["MACD"] = ema12 - ema26
+            tech["Signal"] = tech["MACD"].ewm(span=9, adjust=False).mean()
+            delta = price.diff()
+            gain = delta.clip(lower=0).rolling(14).mean()
+            loss = (-delta.clip(upper=0)).rolling(14).mean()
+            rs = gain / loss.replace(0, np.nan)
+            tech["RSI 14"] = 100 - (100 / (1 + rs))
+            mid = price.rolling(20).mean()
+            std = price.rolling(20).std()
+            tech["Upper Band"] = mid + 2 * std
+            tech["Lower Band"] = mid - 2 * std
+
+            latest = tech.iloc[-1]
+            tk1, tk2, tk3 = st.columns(3)
+            tk1.metric("Latest Price", f"{latest['Asset Price']:,.2f}")
+            tk2.metric("RSI 14", f"{latest['RSI 14']:.1f}" if np.isfinite(latest['RSI 14']) else "N/A")
+            tk3.metric("MACD", f"{latest['MACD']:.2f}" if np.isfinite(latest['MACD']) else "N/A")
+
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=tech["Date"], y=tech["Asset Price"], mode="lines", name="Price"))
+            fig.add_trace(go.Scatter(x=tech["Date"], y=tech["SMA 20"], mode="lines", name="SMA 20"))
+            fig.add_trace(go.Scatter(x=tech["Date"], y=tech["SMA 50"], mode="lines", name="SMA 50"))
+            fig.add_trace(go.Scatter(x=tech["Date"], y=tech["Upper Band"], mode="lines", name="Upper Band"))
+            fig.add_trace(go.Scatter(x=tech["Date"], y=tech["Lower Band"], mode="lines", name="Lower Band"))
+            chart_layout(fig, height=390)
+            st.plotly_chart(fig, use_container_width=True)
+
+            low = float(price.min())
+            high = float(price.max())
+            diff = high - low
+            fib = pd.DataFrame([
+                ["0.0%", high],
+                ["23.6%", high - diff * 0.236],
+                ["38.2%", high - diff * 0.382],
+                ["50.0%", high - diff * 0.500],
+                ["61.8%", high - diff * 0.618],
+                ["78.6%", high - diff * 0.786],
+                ["100.0%", low],
+                ["161.8% Extension", low - diff * 0.618],
+            ], columns=["Fibonacci Level", "Price"])
+            st.markdown("### Fibonacci Retracement & Extension")
+            fib["Price"] = fib["Price"].map(lambda x: f"{x:,.2f}")
+            st.dataframe(fib, use_container_width=True, hide_index=True)
+            st.caption("Fibonacci levels are calculated from the selected series' observed high/low range; they are technical reference levels, not guaranteed support or resistance.")
 
 # ============================================================
 # SETTINGS
