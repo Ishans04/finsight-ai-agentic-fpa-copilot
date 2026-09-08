@@ -162,15 +162,20 @@ def safe_num(series):
 # DATA LOADING
 # ============================================================
 def find_repo_csv():
+    # Use pathlib locally so this function is self-contained.
+    import pathlib
+
     candidates = [
-        Path("synthetic_erp_financials.csv"),
-        Path("synthetic_erp_financials_global_v2.csv"),
-        Path("data/synthetic_erp_financials.csv"),
-        Path("data/synthetic_erp_financials_global_v2.csv"),
+        pathlib.Path("synthetic_erp_financials.csv"),
+        pathlib.Path("synthetic_erp_financials_global_v2.csv"),
+        pathlib.Path("data/synthetic_erp_financials.csv"),
+        pathlib.Path("data/synthetic_erp_financials_global_v2.csv"),
     ]
-    for p in candidates:
-        if p.exists():
-            return p
+
+    for csv_path in candidates:
+        if csv_path.exists():
+            return csv_path
+
     return None
 
 
