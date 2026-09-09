@@ -2725,6 +2725,14 @@ elif page == "Autonomous AI CFO":
 # ============================================================
 # AI CFO ACTION CENTER
 # ============================================================
+elif page == "AI CFO Executive Brief":
+    actions_for_brief = pd.DataFrame(load_cfo_actions()) if load_cfo_actions() else pd.DataFrame()
+    _v20_render_cfo_brief(view, actions_for_brief)
+
+
+# ============================================================
+# AI CFO ACTION CENTER
+# ============================================================
 elif page == "AI CFO Action Center":
     st.subheader("🎯 AI CFO Action Center")
     st.caption("Turn AI CFO findings into owned, trackable management actions.")
