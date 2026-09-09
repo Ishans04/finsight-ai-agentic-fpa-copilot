@@ -1,5 +1,7 @@
 
 import streamlit as st
+import sqlite3
+from pathlib import Path
 import pandas as pd
 import numpy as np
 import plotly.express as px
@@ -483,51 +485,113 @@ if view.empty:
 
 
 # ============================================================
-# AI CFO ACTION WORKFLOW STATE
+# AI CFO ACTION WORKFLOW — PERSISTENT SQLITE V19
 # ============================================================
-if "cfo_actions" not in st.session_state:
-    st.session_state.cfo_actions = []
-if "cfo_audit" not in st.session_state:
-    st.session_state.cfo_audit = []
+DB_PATH = Path(__file__).with_name("finsight_actions.db")
+
+
+def get_db():
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS management_actions (
+            action_id TEXT PRIMARY KEY,
+            created TEXT NOT NULL,
+            priority TEXT NOT NULL,
+            area TEXT NOT NULL,
+            issue TEXT NOT NULL,
+            financial_impact TEXT,
+            recommendation TEXT NOT NULL,
+            owner TEXT NOT NULL,
+            due_date TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'Open'
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS audit_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            user_name TEXT NOT NULL,
+            action TEXT NOT NULL,
+            module TEXT NOT NULL,
+            status TEXT NOT NULL
+        )
+    """)
+    conn.commit()
+    return conn
+
+
+def load_cfo_actions():
+    conn = get_db()
+    rows = conn.execute("SELECT action_id, created, priority, area, issue, financial_impact, recommendation, owner, due_date, status FROM management_actions ORDER BY rowid DESC").fetchall()
+    conn.close()
+    cols = ["Action ID", "Created", "Priority", "Area", "Issue", "Financial Impact", "Recommendation", "Owner", "Due Date", "Status"]
+    return [dict(zip(cols, row)) for row in rows]
+
+
+def load_cfo_audit():
+    conn = get_db()
+    rows = conn.execute("SELECT timestamp, user_name, action, module, status FROM audit_events ORDER BY id DESC LIMIT 200").fetchall()
+    conn.close()
+    cols = ["Timestamp", "User", "Action", "Module", "Status"]
+    return [dict(zip(cols, row)) for row in rows]
 
 
 def log_cfo_event(action, module="AI CFO", status="Success"):
-    st.session_state.cfo_audit.insert(0, {
-        "Timestamp": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "User": "Demo CFO",
-        "Action": action,
-        "Module": module,
-        "Status": status,
-    })
-    st.session_state.cfo_audit = st.session_state.cfo_audit[:100]
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO audit_events(timestamp, user_name, action, module, status) VALUES (?, ?, ?, ?, ?)",
+        (pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"), "Demo CFO", action, module, status),
+    )
+    conn.commit()
+    conn.close()
 
 
 def create_cfo_action(priority, area, issue, impact, recommendation, owner):
-    existing = [a for a in st.session_state.cfo_actions if a.get("Issue") == issue and a.get("Status") != "Resolved"]
+    conn = get_db()
+    existing = conn.execute(
+        "SELECT action_id FROM management_actions WHERE issue = ? AND status != 'Resolved' LIMIT 1", (issue,)
+    ).fetchone()
     if existing:
+        conn.close()
         return False
-    action_id = f"ACT-{pd.Timestamp.now().strftime('%Y%m%d%H%M%S')}-{len(st.session_state.cfo_actions)+1:03d}"
-    st.session_state.cfo_actions.insert(0, {
-        "Action ID": action_id,
-        "Created": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M"),
-        "Priority": priority,
-        "Area": area,
-        "Issue": issue,
-        "Financial Impact": impact,
-        "Recommendation": recommendation,
-        "Owner": owner,
-        "Due Date": (pd.Timestamp.now() + pd.Timedelta(days=14)).strftime("%Y-%m-%d"),
-        "Status": "Open",
-    })
+    now = pd.Timestamp.now()
+    action_id = f"ACT-{now.strftime('%Y%m%d%H%M%S')}-{int(now.microsecond/1000):03d}"
+    created = now.strftime("%Y-%m-%d %H:%M")
+    due_date = (now + pd.Timedelta(days=14)).strftime("%Y-%m-%d")
+    conn.execute(
+        "INSERT INTO management_actions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (action_id, created, priority, area, issue, impact, recommendation, owner, due_date, "Open"),
+    )
+    conn.commit()
+    conn.close()
     log_cfo_event(f"Created management action {action_id}: {area}")
     return True
 
 
+def update_cfo_action_status(action_id, new_status):
+    conn = get_db()
+    cur = conn.execute("UPDATE management_actions SET status = ? WHERE action_id = ?", (new_status, action_id))
+    conn.commit()
+    conn.close()
+    if cur.rowcount:
+        log_cfo_event(f"Updated {action_id} to {new_status}", module="AI CFO Action Center")
+        return True
+    return False
+
+
+def set_cfo_action_due_date(action_id, due_date):
+    conn = get_db()
+    conn.execute("UPDATE management_actions SET due_date = ? WHERE action_id = ?", (str(due_date), action_id))
+    conn.commit()
+    conn.close()
+
+
 def action_status_counts():
-    if not st.session_state.cfo_actions:
-        return 0, 0, 0
-    statuses = pd.Series([a.get("Status", "Open") for a in st.session_state.cfo_actions])
-    return int((statuses == "Open").sum()), int((statuses == "In Progress").sum()), int((statuses == "Resolved").sum())
+    conn = get_db()
+    rows = conn.execute("SELECT status, COUNT(*) FROM management_actions GROUP BY status").fetchall()
+    conn.close()
+    counts = {status: int(n) for status, n in rows}
+    return counts.get("Open", 0), counts.get("In Progress", 0), counts.get("Resolved", 0)
 
 
 # ============================================================
@@ -2421,7 +2485,7 @@ elif page == "AI CFO Action Center":
     a1.metric("Open", open_count)
     a2.metric("In Progress", progress_count)
     a3.metric("Resolved", resolved_count)
-    a4.metric("Total Actions", len(st.session_state.cfo_actions))
+    a4.metric("Total Actions", len(load_cfo_actions()))
 
     st.markdown("### Create Action")
     with st.form("manual_action_form"):
@@ -2443,16 +2507,16 @@ elif page == "AI CFO Action Center":
             else:
                 created = create_cfo_action(priority, area, issue.strip(), impact.strip() or "Not quantified", recommendation.strip(), owner.strip() or "Finance / Cost Owner")
                 if created:
-                    st.session_state.cfo_actions[0]["Due Date"] = str(due_date)
+                    set_cfo_action_due_date(load_cfo_actions()[0]["Action ID"], due_date)
                     st.success("Action created successfully.")
                 else:
                     st.info("An open action with the same issue already exists.")
 
     st.markdown("### Action Register")
-    if not st.session_state.cfo_actions:
+    if not load_cfo_actions():
         st.info("No management actions yet. Create one from an AI CFO finding or use the form above.")
     else:
-        for i, action in enumerate(st.session_state.cfo_actions):
+        for i, action in enumerate(load_cfo_actions()):
             status = action.get("Status", "Open")
             priority_label = action.get("Priority", "Medium")
             icon = "🔴" if priority_label == "High" else "🟠" if priority_label == "Medium" else "🟢"
@@ -2473,13 +2537,12 @@ elif page == "AI CFO Action Center":
                         key=f"status_{action['Action ID']}",
                     )
                     if st.button("Update Status", key=f"update_{action['Action ID']}"):
-                        action["Status"] = new_status
-                        log_cfo_event(f"Updated {action['Action ID']} to {new_status}", module="AI CFO Action Center")
+                        update_cfo_action_status(action["Action ID"], new_status)
                         st.success(f"Action updated to {new_status}.")
                         st.rerun()
 
         st.markdown("### Action Register Export")
-        export_df = pd.DataFrame(st.session_state.cfo_actions)
+        export_df = pd.DataFrame(load_cfo_actions())
         st.download_button(
             "Download Action Register CSV",
             data=export_df.to_csv(index=False).encode("utf-8"),
@@ -2646,7 +2709,7 @@ elif page == "Reports Library":
     # -----------------------------
     # Actions and report catalog
     # -----------------------------
-    actions_df = pd.DataFrame(st.session_state.cfo_actions) if st.session_state.cfo_actions else pd.DataFrame()
+    actions_df = pd.DataFrame(load_cfo_actions()) if load_cfo_actions() else pd.DataFrame()
 
     st.markdown("### CFO Monthly Business Review")
     st.caption(f"{report_title} • {report_period} • Generated {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}")
@@ -3406,13 +3469,13 @@ elif page == "Settings":
 elif page == "Audit Logs":
     st.subheader("Audit Logs")
     st.caption("Prototype audit trail for AI CFO and management-action events.")
-    if not st.session_state.cfo_audit:
+    if not load_cfo_audit():
         st.info("No action events recorded yet. Create or update an AI CFO action to populate the audit trail.")
     else:
-        st.dataframe(pd.DataFrame(st.session_state.cfo_audit), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(load_cfo_audit()), use_container_width=True, hide_index=True)
         st.download_button(
             "Download Audit Log CSV",
-            data=pd.DataFrame(st.session_state.cfo_audit).to_csv(index=False).encode("utf-8"),
+            data=pd.DataFrame(load_cfo_audit()).to_csv(index=False).encode("utf-8"),
             file_name="finsight_ai_audit_log.csv",
             mime="text/csv",
         )
