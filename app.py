@@ -355,7 +355,7 @@ with st.sidebar:
         "What-if Scenarios",
         "Risk & Anomaly Detection",
         "Cost Intelligence",
-        "Management Actions",
+        "AI CFO Action Center",
         "Reports Library",
         "Upload Data",
         "ERP Connections",
@@ -452,6 +452,55 @@ if date_range and len(date_range) == 2:
 if view.empty:
     st.warning("No transactions match the selected filters.")
     st.stop()
+
+
+
+# ============================================================
+# AI CFO ACTION WORKFLOW STATE
+# ============================================================
+if "cfo_actions" not in st.session_state:
+    st.session_state.cfo_actions = []
+if "cfo_audit" not in st.session_state:
+    st.session_state.cfo_audit = []
+
+
+def log_cfo_event(action, module="AI CFO", status="Success"):
+    st.session_state.cfo_audit.insert(0, {
+        "Timestamp": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "User": "Demo CFO",
+        "Action": action,
+        "Module": module,
+        "Status": status,
+    })
+    st.session_state.cfo_audit = st.session_state.cfo_audit[:100]
+
+
+def create_cfo_action(priority, area, issue, impact, recommendation, owner):
+    existing = [a for a in st.session_state.cfo_actions if a.get("Issue") == issue and a.get("Status") != "Resolved"]
+    if existing:
+        return False
+    action_id = f"ACT-{pd.Timestamp.now().strftime('%Y%m%d%H%M%S')}-{len(st.session_state.cfo_actions)+1:03d}"
+    st.session_state.cfo_actions.insert(0, {
+        "Action ID": action_id,
+        "Created": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M"),
+        "Priority": priority,
+        "Area": area,
+        "Issue": issue,
+        "Financial Impact": impact,
+        "Recommendation": recommendation,
+        "Owner": owner,
+        "Due Date": (pd.Timestamp.now() + pd.Timedelta(days=14)).strftime("%Y-%m-%d"),
+        "Status": "Open",
+    })
+    log_cfo_event(f"Created management action {action_id}: {area}")
+    return True
+
+
+def action_status_counts():
+    if not st.session_state.cfo_actions:
+        return 0, 0, 0
+    statuses = pd.Series([a.get("Status", "Open") for a in st.session_state.cfo_actions])
+    return int((statuses == "Open").sum()), int((statuses == "In Progress").sum()), int((statuses == "Resolved").sum())
 
 
 # ============================================================
@@ -738,37 +787,108 @@ if page == "Executive Dashboard":
 # ============================================================
 elif page == "AI CFO":
     st.subheader("🤖 AI CFO")
-    st.caption("Decision-support prototype combining deterministic FP&A rules, anomaly signals and management actions.")
+    st.caption("Decision-support engine that converts financial signals into explainable management actions.")
 
     findings = []
-
-    if variance > 0:
-        findings.append(("High", "Cost over budget", f"Actual cost exceeds budget by {money_usd(variance)}.", "Finance Controller", "Review unfavorable cost centers and approve corrective actions."))
-    else:
-        findings.append(("Low", "Cost under budget", f"Actual cost is favorable by {money_usd(abs(variance))}.", "FP&A", "Validate whether savings are structural or timing-related."))
+    cost_overrun = float(max(variance, 0))
+    if cost_overrun > 0:
+        findings.append({
+            "Priority": "High", "Area": "Cost Control",
+            "Issue": "Cost over budget",
+            "Finding": f"Actual cost exceeds budget by {money_usd(cost_overrun)}.",
+            "Impact": money_usd(cost_overrun),
+            "Risk": "Margin and cash pressure if the overrun persists.",
+            "Recommendation": "Review the largest unfavorable cost categories, cost centers and transaction-level drivers.",
+            "Owner": "Finance Controller",
+        })
 
     if margin < 60:
-        findings.append(("High", "Margin pressure", f"Current consolidated margin is {pct(margin)}.", "CFO / FP&A", "Review pricing, delivery economics and major cost drivers."))
+        findings.append({
+            "Priority": "High", "Area": "Profitability",
+            "Issue": "Margin pressure",
+            "Finding": f"Current consolidated margin is {pct(margin)}.",
+            "Impact": "Profitability risk",
+            "Risk": "Lower earnings conversion and reduced headroom for investment.",
+            "Recommendation": "Review pricing, delivery economics and high-growth cost categories.",
+            "Owner": "CFO / FP&A",
+        })
     elif margin < 70:
-        findings.append(("Medium", "Margin watch", f"Current margin is {pct(margin)}.", "FP&A", "Monitor margin trend and high-growth cost categories."))
-    else:
-        findings.append(("Low", "Healthy margin", f"Current margin is {pct(margin)}.", "CFO", "Protect the current margin while funding growth."))
+        findings.append({
+            "Priority": "Medium", "Area": "Profitability",
+            "Issue": "Margin watch",
+            "Finding": f"Current consolidated margin is {pct(margin)}.",
+            "Impact": "Margin monitoring",
+            "Risk": "Further cost inflation could compress profitability.",
+            "Recommendation": "Monitor margin trend and investigate unfavorable cost movement.",
+            "Owner": "FP&A",
+        })
 
     anomalies = int(view["Anomaly Flag"].sum())
     if anomalies:
-        findings.append(("High", "Anomaly exposure", f"{anomalies:,} transaction(s) are flagged for investigation.", "Controller", "Prioritize the highest-value anomalous transactions."))
-    else:
-        findings.append(("Low", "No flagged anomalies", "No source-level anomaly flags are present in the current view.", "Controller", "Continue routine monitoring."))
+        findings.append({
+            "Priority": "High", "Area": "Risk & Controls",
+            "Issue": "Anomaly exposure",
+            "Finding": f"{anomalies:,} transaction(s) are flagged for investigation.",
+            "Impact": f"{anomalies:,} transactions",
+            "Risk": "Potential control, posting or unusual-spend risk.",
+            "Recommendation": "Prioritize the highest-value anomalies and document investigation outcomes.",
+            "Owner": "Controller",
+        })
 
-    for priority, title, finding, owner, action in findings:
-        cls = "danger" if priority == "High" else "warning" if priority == "Medium" else "insight"
-        html_block(f'<div class="{cls}"><b>{priority} · {title}</b><br>{finding}<br><span class="small">Owner: {owner} · Recommended action: {action}</span></div>')
+    if not findings:
+        findings.append({
+            "Priority": "Low", "Area": "Financial Health",
+            "Issue": "No material exception detected",
+            "Finding": "No high-priority management exception was generated from the current view.",
+            "Impact": "Monitoring",
+            "Risk": "Low",
+            "Recommendation": "Continue routine monitoring and periodic forecast review.",
+            "Owner": "FP&A",
+        })
+
+    open_count, progress_count, resolved_count = action_status_counts()
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("AI Findings", len(findings))
+    k2.metric("Open Actions", open_count)
+    k3.metric("In Progress", progress_count)
+    k4.metric("Resolved", resolved_count)
+
+    st.markdown("### AI CFO Findings")
+    for idx, f in enumerate(findings):
+        cls = "danger" if f["Priority"] == "High" else "warning" if f["Priority"] == "Medium" else "insight"
+        html_block(
+            f'<div class="{cls}"><b>{f["Priority"]} · {f["Area"]} · {f["Issue"]}</b><br>'
+            f'{f["Finding"]}<br><span class="small">Financial impact: {f["Impact"]} · Owner: {f["Owner"]}</span></div>'
+        )
+        with st.expander(f"🔎 Investigate: {f['Issue']}"):
+            c1, c2 = st.columns(2)
+            with c1:
+                st.write(f"**Finding**  ")
+                st.write(f["Finding"])
+                st.write(f"**Financial impact**  ")
+                st.write(f["Impact"])
+                st.write(f"**Risk**  ")
+                st.write(f["Risk"])
+            with c2:
+                st.write(f"**Recommended action**  ")
+                st.write(f["Recommendation"])
+                st.write(f"**Owner**  ")
+                st.write(f["Owner"])
+                if st.button("Create Management Action", key=f"create_ai_action_{idx}"):
+                    created = create_cfo_action(
+                        f["Priority"], f["Area"], f["Issue"], f["Impact"], f["Recommendation"], f["Owner"]
+                    )
+                    if created:
+                        st.success("Management action created and added to the Action Center.")
+                    else:
+                        st.info("An open action for this issue already exists.")
 
     st.subheader("CFO Executive Brief")
     st.info(
         f"Revenue is {money_usd(revenue)}, actual cost is {money_usd(actual)}, "
         f"budget is {money_usd(budget)}, and profit margin is {pct(margin)}. "
-        f"The current cost variance is {money_usd(variance)}."
+        f"The current cost variance is {money_usd(variance)}. "
+        f"The AI CFO has generated {len(findings)} management signal(s)."
     )
 
     st.markdown("### Ask the CFO")
@@ -781,22 +901,16 @@ elif page == "AI CFO":
         q = question.lower()
         q_view = view.copy()
         applied_filters = []
-
-        # Detect named dimensions in the user's question and apply them
-        # before calculating the requested answer. This enables chained
-        # investigations such as Region -> Cost Category -> Department.
         for region_name in sorted(df["Region"].dropna().astype(str).unique(), key=len, reverse=True):
             if region_name.lower() in q:
                 q_view = q_view[q_view["Region"].astype(str).str.lower() == region_name.lower()]
                 applied_filters.append(f"Region={region_name}")
                 break
-
         for country_name in sorted(df["Country"].dropna().astype(str).unique(), key=len, reverse=True):
             if country_name.lower() in q:
                 q_view = q_view[q_view["Country"].astype(str).str.lower() == country_name.lower()]
                 applied_filters.append(f"Country={country_name}")
                 break
-
         for category_name in sorted(df["Cost Category"].dropna().astype(str).unique(), key=len, reverse=True):
             if category_name.lower() in q:
                 q_view = q_view[q_view["Cost Category"].astype(str).str.lower() == category_name.lower()]
@@ -807,53 +921,25 @@ elif page == "AI CFO":
             st.warning("No transactions matched the dimensions detected in the question.")
         else:
             if "department" in q:
-                temp = q_view.groupby("Department", as_index=False).agg(
-                    Budget=("Budget USD", "sum"),
-                    Actual=("Actual USD", "sum"),
-                )
+                temp = q_view.groupby("Department", as_index=False).agg(Budget=("Budget USD", "sum"), Actual=("Actual USD", "sum"))
                 temp["Variance"] = temp["Actual"] - temp["Budget"]
                 top = temp.sort_values("Variance", ascending=False).iloc[0]
-
                 scope = ", ".join(applied_filters) if applied_filters else "current filtered view"
-                st.success(
-                    f"Within {scope}, {top['Department']} is the largest unfavorable "
-                    f"departmental variance at {money_usd(top['Variance'])}."
-                )
-
+                st.success(f"Within {scope}, {top['Department']} is the largest unfavorable departmental variance at {money_usd(top['Variance'])}.")
             elif "region" in q or "business unit" in q:
-                temp = q_view.groupby("Region", as_index=False).agg(
-                    Budget=("Budget USD", "sum"),
-                    Actual=("Actual USD", "sum"),
-                )
+                temp = q_view.groupby("Region", as_index=False).agg(Budget=("Budget USD", "sum"), Actual=("Actual USD", "sum"))
                 temp["Variance"] = temp["Actual"] - temp["Budget"]
                 top = temp.sort_values("Variance", ascending=False).iloc[0]
-
                 scope = ", ".join(applied_filters) if applied_filters else "current filtered view"
-                st.success(
-                    f"Within {scope}, {top['Region']} is the largest unfavorable "
-                    f"regional variance at {money_usd(top['Variance'])}."
-                )
-
-            elif "cost" in q or "cost category" in q or "budget" in q or "variance" in q:
-                temp = q_view.groupby("Cost Category", as_index=False).agg(
-                    Budget=("Budget USD", "sum"),
-                    Actual=("Actual USD", "sum"),
-                )
+                st.success(f"Within {scope}, {top['Region']} is the largest unfavorable regional variance at {money_usd(top['Variance'])}.")
+            elif "cost" in q or "category" in q or "driver" in q:
+                temp = q_view.groupby("Cost Category", as_index=False).agg(Budget=("Budget USD", "sum"), Actual=("Actual USD", "sum"))
                 temp["Variance"] = temp["Actual"] - temp["Budget"]
                 top = temp.sort_values("Variance", ascending=False).iloc[0]
-
                 scope = ", ".join(applied_filters) if applied_filters else "current filtered view"
-                st.success(
-                    f"Within {scope}, {top['Cost Category']} is the largest unfavorable "
-                    f"cost driver at {money_usd(top['Variance'])}."
-                )
-
+                st.success(f"Within {scope}, {top['Cost Category']} is the largest unfavorable cost driver at {money_usd(top['Variance'])}.")
             else:
-                st.success(
-                    f"The current investigation scope has {money_usd(q_view['Revenue USD'].sum())} "
-                    f"revenue, {money_usd(q_view['Actual USD'].sum())} actual cost and "
-                    f"{pct(q_view['Profit USD'].sum() / q_view['Revenue USD'].sum() * 100 if q_view['Revenue USD'].sum() else 0)} margin."
-                )
+                st.info("Try asking about a region, department, cost category, budget variance, or driver.")
 
 
 # ============================================================
@@ -1112,35 +1198,85 @@ elif page == "Cost Intelligence":
 
 
 # ============================================================
-# MANAGEMENT ACTIONS
+# AI CFO ACTION CENTER
 # ============================================================
-elif page == "Management Actions":
-    st.subheader("Management Actions")
-    st.caption("AI CFO recommended actions generated from current financial signals.")
+elif page == "AI CFO Action Center":
+    st.subheader("🎯 AI CFO Action Center")
+    st.caption("Turn AI CFO findings into owned, trackable management actions.")
 
-    cost = view.groupby("Cost Category", as_index=False).agg(
-        Budget=("Budget USD", "sum"),
-        Actual=("Actual USD", "sum"),
-    )
-    cost["Variance"] = cost["Actual"] - cost["Budget"]
-    cost = cost.sort_values("Variance", ascending=False)
+    open_count, progress_count, resolved_count = action_status_counts()
+    a1, a2, a3, a4 = st.columns(4)
+    a1.metric("Open", open_count)
+    a2.metric("In Progress", progress_count)
+    a3.metric("Resolved", resolved_count)
+    a4.metric("Total Actions", len(st.session_state.cfo_actions))
 
-    actions = []
-    for _, r in cost.head(10).iterrows():
-        if r["Variance"] > 0:
-            actions.append({
-                "Priority": "High" if r["Variance"] / max(r["Budget"], 1) > .10 else "Medium",
-                "Area": r["Cost Category"],
-                "Issue": f"Over budget by {money_usd(r['Variance'])}",
-                "Action": "Investigate root cause and create corrective action.",
-                "Owner": "Finance / Cost Owner",
-                "Status": "Open",
-            })
+    st.markdown("### Create Action")
+    with st.form("manual_action_form"):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            priority = st.selectbox("Priority", ["High", "Medium", "Low"])
+            area = st.selectbox("Area", ["Cost Control", "Profitability", "Cash & Liquidity", "Risk & Controls", "Forecast", "Working Capital", "Other"])
+        with c2:
+            owner = st.text_input("Owner", value="Finance / Cost Owner")
+            due_date = st.date_input("Due Date", value=(pd.Timestamp.now() + pd.Timedelta(days=14)).date())
+        with c3:
+            issue = st.text_input("Issue", placeholder="e.g. EMEA payroll over budget")
+            impact = st.text_input("Financial Impact", placeholder="$5.2M unfavorable")
+        recommendation = st.text_area("Recommended Action", placeholder="Describe the corrective action...")
+        submitted = st.form_submit_button("Create Action")
+        if submitted:
+            if not issue.strip() or not recommendation.strip():
+                st.error("Issue and Recommended Action are required.")
+            else:
+                created = create_cfo_action(priority, area, issue.strip(), impact.strip() or "Not quantified", recommendation.strip(), owner.strip() or "Finance / Cost Owner")
+                if created:
+                    st.session_state.cfo_actions[0]["Due Date"] = str(due_date)
+                    st.success("Action created successfully.")
+                else:
+                    st.info("An open action with the same issue already exists.")
 
-    if actions:
-        st.dataframe(pd.DataFrame(actions), use_container_width=True, hide_index=True)
+    st.markdown("### Action Register")
+    if not st.session_state.cfo_actions:
+        st.info("No management actions yet. Create one from an AI CFO finding or use the form above.")
     else:
-        st.success("No unfavorable cost actions were generated for the current filters.")
+        for i, action in enumerate(st.session_state.cfo_actions):
+            status = action.get("Status", "Open")
+            priority_label = action.get("Priority", "Medium")
+            icon = "🔴" if priority_label == "High" else "🟠" if priority_label == "Medium" else "🟢"
+            with st.expander(f"{icon} {action['Action ID']} · {action['Area']} · {action['Issue']} · {status}", expanded=(i == 0 and status != "Resolved")):
+                c1, c2 = st.columns([1.15, 1])
+                with c1:
+                    st.write(f"**Issue:** {action['Issue']}")
+                    st.write(f"**Financial Impact:** {action['Financial Impact']}")
+                    st.write(f"**Recommendation:** {action['Recommendation']}")
+                with c2:
+                    st.write(f"**Owner:** {action['Owner']}")
+                    st.write(f"**Due Date:** {action['Due Date']}")
+                    st.write(f"**Created:** {action['Created']}")
+                    new_status = st.selectbox(
+                        "Status",
+                        ["Open", "In Progress", "Resolved"],
+                        index=["Open", "In Progress", "Resolved"].index(status) if status in ["Open", "In Progress", "Resolved"] else 0,
+                        key=f"status_{action['Action ID']}",
+                    )
+                    if st.button("Update Status", key=f"update_{action['Action ID']}"):
+                        action["Status"] = new_status
+                        log_cfo_event(f"Updated {action['Action ID']} to {new_status}", module="AI CFO Action Center")
+                        st.success(f"Action updated to {new_status}.")
+                        st.rerun()
+
+        st.markdown("### Action Register Export")
+        export_df = pd.DataFrame(st.session_state.cfo_actions)
+        st.download_button(
+            "Download Action Register CSV",
+            data=export_df.to_csv(index=False).encode("utf-8"),
+            file_name="finsight_ai_cfo_action_register.csv",
+            mime="text/csv",
+        )
+
+    st.markdown("### Workflow")
+    st.info("Detect → Explain → Recommend → Assign → Track → Resolve. Actions are stored for the current Streamlit session in this prototype.")
 
 
 # ============================================================
@@ -1639,16 +1775,17 @@ elif page == "Settings":
 # ============================================================
 elif page == "Audit Logs":
     st.subheader("Audit Logs")
-    st.caption("Prototype audit trail for finance actions.")
-
-    logs = pd.DataFrame({
-        "Timestamp": [pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")],
-        "User": ["Demo CFO"],
-        "Action": ["Dashboard viewed"],
-        "Module": ["Executive Dashboard"],
-        "Status": ["Success"],
-    })
-    st.dataframe(logs, use_container_width=True, hide_index=True)
+    st.caption("Prototype audit trail for AI CFO and management-action events.")
+    if not st.session_state.cfo_audit:
+        st.info("No action events recorded yet. Create or update an AI CFO action to populate the audit trail.")
+    else:
+        st.dataframe(pd.DataFrame(st.session_state.cfo_audit), use_container_width=True, hide_index=True)
+        st.download_button(
+            "Download Audit Log CSV",
+            data=pd.DataFrame(st.session_state.cfo_audit).to_csv(index=False).encode("utf-8"),
+            file_name="finsight_ai_audit_log.csv",
+            mime="text/csv",
+        )
 
 
 # ============================================================
