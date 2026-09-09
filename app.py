@@ -84,6 +84,25 @@ st.markdown("""
     text-overflow: clip;
     letter-spacing: -0.02em;
 }
+/* Prevent Streamlit metric values from being ellipsized inside six-column CFO KPI cards. */
+[data-testid="stMetricValue"] {
+    font-size: 1.42rem !important;
+    line-height: 1.15 !important;
+    white-space: nowrap !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    min-width: 0 !important;
+    letter-spacing: -0.025em !important;
+}
+[data-testid="stMetric"] {
+    min-width: 0 !important;
+    overflow: visible !important;
+}
+[data-testid="stMetricLabel"] {
+    white-space: nowrap !important;
+    overflow: visible !important;
+}
+
 .kpi-note {
     color: #54d6b1;
     font-size: 12px;
