@@ -654,8 +654,18 @@ with st.sidebar:
             "Upload Market CSV (optional)",
             type=["csv"],
             key="market_csv",
-            help="Optional price history with Date, Asset Price and Benchmark Price columns for Alpha, Beta and technical analytics.",
+            help="Price history with Date, Asset Price and Benchmark Price columns for Alpha, Beta and technical analytics.",
         )
+        demo_market_path = Path("finsight_demo_market_data_v24.csv")
+        if demo_market_path.exists():
+            with open(demo_market_path, "rb") as _f:
+                st.download_button(
+                    "⬇ Download Demo Market CSV",
+                    data=_f.read(),
+                    file_name="finsight_demo_market_data_v24.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                )
 
     st.divider()
     currency_view = st.selectbox(
@@ -3887,7 +3897,7 @@ elif page == "Ratio Analysis":
 
     if market.empty:
         st.markdown("### Market Analytics")
-        st.info("Upload a market CSV in the sidebar to calculate Alpha, Beta, R, R², Sharpe, Sortino, Treynor, Information Ratio, volatility, VaR and maximum drawdown.")
+        st.info("Upload market price history, or use the bundled synthetic demo market CSV, to calculate Alpha, Beta, R, R², Sharpe, Sortino, Treynor, Information Ratio, volatility, VaR and maximum drawdown.")
         st.caption("Expected columns: Date, Asset Price, Benchmark Price. Market analytics are intentionally kept separate from ERP accounting data.")
     else:
         market["Asset Return"] = market["Asset Price"].pct_change()
