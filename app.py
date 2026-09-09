@@ -1284,27 +1284,35 @@ elif page == "What-if Scenarios":
     base_revenue = float(base["Revenue USD"].sum())
     base_actual = float(base["Actual USD"].sum())
 
-    if "Cost Type" in base.columns:
-        base_cogs = float(base.loc[base["Cost Type"].eq("COGS"), "Actual USD"].sum())
-        base_opex = float(base.loc[base["Cost Type"].eq("Opex"), "Actual USD"].sum())
-    else:
-        # Fallback for older datasets: treat 38% of revenue as COGS and the remainder
-        # of actual cost as Opex. This is explicitly a modeling fallback.
-        base_cogs = base_revenue * 0.38
-        base_opex = max(base_actual - base_cogs, 0.0)
-
-    # Prefer the management-layer values where available; otherwise derive them.
+    # Prefer the management-layer P&L as the scenario baseline when it exists.
+    # V3 stores monthly Gross Profit / EBITDA / PAT values on transaction rows, so
+    # use the first value per month rather than summing repeated transaction values.
     base_monthly = base.copy()
     base_monthly["Month"] = pd.to_datetime(base_monthly["Date"], errors="coerce").dt.to_period("M").dt.to_timestamp()
     if "Gross Profit" in base_monthly.columns:
         base_gross_profit = float(base_monthly.groupby("Month")["Gross Profit"].first().sum())
     else:
+        if "Cost Type" in base.columns:
+            base_cogs = float(base.loc[base["Cost Type"].eq("COGS"), "Actual USD"].sum())
+        else:
+            base_cogs = base_revenue * 0.38
         base_gross_profit = base_revenue - base_cogs
 
     if "EBITDA" in base_monthly.columns:
         base_ebitda = float(base_monthly.groupby("Month")["EBITDA"].first().sum())
     else:
+        if "Cost Type" in base.columns:
+            base_cogs = float(base.loc[base["Cost Type"].eq("COGS"), "Actual USD"].sum())
+            base_opex = float(base.loc[base["Cost Type"].eq("Opex"), "Actual USD"].sum())
+        else:
+            base_cogs = base_revenue * 0.38
+            base_opex = max(base_actual - base_cogs, 0.0)
         base_ebitda = base_gross_profit - base_opex
+
+    # Derive the scenario cost structure from the management P&L baseline so that
+    # 0% assumptions reproduce the displayed historical EBITDA exactly.
+    base_cogs = max(base_revenue - base_gross_profit, 0.0)
+    base_opex = max(base_gross_profit - base_ebitda, 0.0)
 
     if "PAT" in base_monthly.columns:
         base_pat = float(base_monthly.groupby("Month")["PAT"].first().sum())
