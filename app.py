@@ -136,13 +136,15 @@ def html_block(html):
 def money_usd(x):
     x = float(x or 0)
     ax = abs(x)
+    sign = "-" if x < 0 else ""
+    ax = abs(x)
     if ax >= 1_000_000_000:
-        return f"${x/1_000_000_000:,.2f}B"
+        return f"{sign}${ax/1_000_000_000:,.2f}B"
     if ax >= 1_000_000:
-        return f"${x/1_000_000:,.2f}M"
+        return f"{sign}${ax/1_000_000:,.2f}M"
     if ax >= 1_000:
-        return f"${x/1_000:,.1f}K"
-    return f"${x:,.0f}"
+        return f"{sign}${ax/1_000:,.1f}K"
+    return f"{sign}${ax:,.0f}"
 
 
 def money_local(x, currency):
@@ -1349,22 +1351,38 @@ elif page == "What-if Scenarios":
     cogs_ratio = base_cogs / base_revenue if base_revenue else 0.38
     revenue_driven_cogs = scenario_revenue * cogs_ratio
 
-    payroll_base = float(base.loc[base[category_col].astype(str).str.strip().eq("Payroll"), "Actual USD"].sum()) if category_col in base.columns else 0.0
-    cloud_base = float(base.loc[base[category_col].astype(str).str.strip().eq("Cloud Infrastructure"), "Actual USD"].sum()) if category_col in base.columns else 0.0
-    other_opex_base = max(base_opex - payroll_base - cloud_base, 0.0)
+    # Split controllable drivers according to their actual Cost Type. Payroll has
+    # both COGS and Opex components in V3; only the Opex portion belongs in the
+    # EBITDA Opex bridge. Cloud Infrastructure is COGS in V3, so its assumption
+    # changes Gross Profit rather than Opex.
+    payroll_mask = (
+        base[category_col].astype(str).str.strip().eq("Payroll") &
+        base["Cost Type"].astype(str).str.strip().eq("Opex")
+    ) if category_col in base.columns and "Cost Type" in base.columns else pd.Series(False, index=base.index)
+    cloud_mask = (
+        base[category_col].astype(str).str.strip().eq("Cloud Infrastructure") &
+        base["Cost Type"].astype(str).str.strip().eq("COGS")
+    ) if category_col in base.columns and "Cost Type" in base.columns else pd.Series(False, index=base.index)
+
+    payroll_base = float(base.loc[payroll_mask, "Actual USD"].sum())
+    cloud_base = float(base.loc[cloud_mask, "Actual USD"].sum())
+    other_opex_base = max(base_opex - payroll_base, 0.0)
 
     scenario_payroll = payroll_base * (1 + payroll_change / 100)
     scenario_cloud = cloud_base * (1 + cloud_change / 100)
     scenario_other_opex = other_opex_base * (1 + opex_change / 100)
 
-    # If a category is absent, the related assumption has no financial impact.
     if "Payroll" not in category_values:
         scenario_payroll = payroll_base
     if "Cloud Infrastructure" not in category_values:
         scenario_cloud = cloud_base
 
-    scenario_opex = scenario_payroll + scenario_cloud + scenario_other_opex
-    scenario_gross_profit = scenario_revenue - revenue_driven_cogs
+    # Revenue follows the historical COGS ratio. Cloud is an incremental COGS
+    # lever; Payroll and other Opex affect EBITDA below.
+    revenue_driven_cogs = scenario_revenue * cogs_ratio
+    cloud_delta = scenario_cloud - cloud_base
+    scenario_gross_profit = scenario_revenue - revenue_driven_cogs - cloud_delta
+    scenario_opex = scenario_payroll + scenario_other_opex
     scenario_ebitda = scenario_gross_profit - scenario_opex
 
     # Preserve the baseline EBITDA -> PAT bridge rather than inventing a new tax rate.
@@ -1380,15 +1398,20 @@ elif page == "What-if Scenarios":
     scenario_pat_margin = scenario_pat / scenario_revenue * 100 if scenario_revenue else 0
     gross_margin_scenario = scenario_gross_profit / scenario_revenue * 100 if scenario_revenue else 0
 
-    # Executive impact cards.
+    # Compact custom cards avoid Streamlit metric text clipping in six columns.
     st.markdown("### Scenario Impact")
-    k1, k2, k3, k4, k5, k6 = st.columns(6)
-    k1.metric("Scenario Revenue", money_usd(scenario_revenue), f"{revenue_change:+d}%")
-    k2.metric("Gross Profit", money_usd(scenario_gross_profit), f"{scenario_gross_profit - base_gross_profit:+,.0f}")
-    k3.metric("EBITDA", money_usd(scenario_ebitda), f"{scenario_ebitda - base_ebitda:+,.0f}")
-    k4.metric("EBITDA Margin", pct(scenario_ebitda_margin), f"{scenario_ebitda_margin - (base_ebitda / base_revenue * 100 if base_revenue else 0):+.1f} pts")
-    k5.metric("PAT", money_usd(scenario_pat), f"{scenario_pat - base_pat:+,.0f}")
-    k6.metric("Cash Impact", money_usd(cash_impact), f"{cash_impact:+,.0f}")
+    card_data = [
+        ("Scenario Revenue", money_usd(scenario_revenue), f"{revenue_change:+d}%"),
+        ("Gross Profit", money_usd(scenario_gross_profit), f"{scenario_gross_profit - base_gross_profit:+,.0f}"),
+        ("EBITDA", money_usd(scenario_ebitda), f"{scenario_ebitda - base_ebitda:+,.0f}"),
+        ("EBITDA Margin", pct(scenario_ebitda_margin), f"{scenario_ebitda_margin - (base_ebitda / base_revenue * 100 if base_revenue else 0):+.1f} pts"),
+        ("PAT", money_usd(scenario_pat), f"{scenario_pat - base_pat:+,.0f}"),
+        ("Cash Impact", money_usd(cash_impact), f"{cash_impact:+,.0f}"),
+    ]
+    cols = st.columns(6)
+    for col, (label, value, delta) in zip(cols, card_data):
+        with col:
+            html_block(f"<div class='kpi' style='min-height:112px;padding:15px 12px;overflow:hidden;'><div class='kpi-label'>{label}</div><div class='kpi-value' style='font-size:20px;white-space:nowrap;letter-spacing:-.02em;'>{value}</div><div class='kpi-note' style='font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'>{delta}</div></div>")
 
     # Waterfall-style bridge using the baseline and management levers.
     st.markdown("### EBITDA Bridge")
