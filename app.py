@@ -2637,7 +2637,7 @@ elif page == "Cost Intelligence":
 elif page == "Autonomous AI CFO":
     st.subheader("🧠 Autonomous AI CFO")
     st.caption("Proactive financial monitoring prototype: detect material signals, quantify impact and route approved findings into management actions.")
-    st.info("Prototype behavior: the scan runs against the current ERP view when the page is loaded or refreshed. Production autonomy would use scheduled jobs, live ERP feeds and governed notifications.")
+    st.info("The scan runs against the current ERP view when the page is loaded or refreshed. High-priority findings can be governed and routed into the persistent AI CFO Action Center. Production autonomy would add scheduled jobs, live ERP feeds and governed notifications.")
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
@@ -2695,6 +2695,36 @@ elif page == "Autonomous AI CFO":
     k1.metric("Signals Detected", len(findings)); k2.metric("High Priority", high); k3.metric("Critical Route Candidates", critical); k4.metric("Anomalies in Scope", f"{scan_anomalies:,}")
 
     st.markdown("### CFO Monitoring Feed")
+
+    high_findings = [f for f in findings if f["Priority"] == "High" and f["Signal"] != "No material exception"]
+
+    if action_mode == "Auto-draft critical actions" and high_findings:
+        st.warning(
+            f"{len(high_findings)} high-priority signal(s) are eligible for governed action drafting. "
+            "Review the findings below before routing them."
+        )
+        if st.button("⚡ Route All High-Priority Signals to Action Center", key="route_all_v21"):
+            routed = 0
+            already_open = 0
+            for f in high_findings:
+                created = create_cfo_action(
+                    f["Priority"], f["Area"], f["Signal"], f["Impact"],
+                    f["Recommendation"], f["Owner"]
+                )
+                if created:
+                    routed += 1
+                    log_cfo_event(
+                        f"Autonomous CFO routed signal: {f['Signal']}",
+                        module="Autonomous AI CFO"
+                    )
+                else:
+                    already_open += 1
+            st.success(
+                f"Routed {routed} signal(s) to the AI CFO Action Center."
+                + (f" {already_open} already had an open action." if already_open else "")
+            )
+            st.rerun()
+
     for i, f in enumerate(findings):
         icon = "🔴" if f["Priority"] == "High" else "🟠" if f["Priority"] == "Medium" else "🟢"
         with st.expander(f"{icon} {f['Priority']} · {f['Signal']} · {f['Area']}", expanded=(i == 0)):
@@ -2708,13 +2738,21 @@ elif page == "Autonomous AI CFO":
                 st.write(f"**Owner:** {f['Owner']}")
                 st.write(f"**Proposed action:** {f['Action']}")
             if f["Priority"] == "High":
-                if action_mode == "Auto-draft critical actions": st.warning("Critical action candidate: review and approve the management action below.")
+                if action_mode == "Auto-draft critical actions":
+                    st.caption("Governed routing is enabled: review the finding, then use the route-all control or route this signal individually.")
                 if st.button("🎯 Route to AI CFO Action Center", key=f"auto_route_{i}"):
-                    created=create_cfo_action(f["Priority"],f["Area"],f["Signal"],f["Impact"],f["Recommendation"],f["Owner"])
+                    created=create_cfo_action(
+                        f["Priority"],f["Area"],f["Signal"],f["Impact"],
+                        f["Recommendation"],f["Owner"]
+                    )
                     if created:
-                        log_cfo_event(f"Autonomous CFO routed signal: {f['Signal']}", module="Autonomous AI CFO")
+                        log_cfo_event(
+                            f"Autonomous CFO routed signal: {f['Signal']}",
+                            module="Autonomous AI CFO"
+                        )
                         st.success("Signal routed to the AI CFO Action Center.")
-                    else: st.info("An open management action for this signal already exists.")
+                    else:
+                        st.info("An open management action for this signal already exists.")
 
     st.markdown("### CFO Scan Summary")
     st.write(f"The monitored view contains **{money_usd(scan_actual)} actual cost** against **{money_usd(scan_budget)} budget**, a net variance of **{money_usd(scan_variance)} ({scan_variance_pct:.2f}%)**.")
@@ -2808,7 +2846,7 @@ elif page == "AI CFO Action Center":
         )
 
     st.markdown("### Workflow")
-    st.info("Detect → Explain → Recommend → Assign → Track → Resolve. Actions are stored for the current Streamlit session in this prototype.")
+    st.info("Detect → Explain → Recommend → Assign → Track → Resolve. Management actions and audit events are persisted in the prototype database.")
 
 
 # ============================================================
