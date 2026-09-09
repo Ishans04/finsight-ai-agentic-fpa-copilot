@@ -954,9 +954,23 @@ def _v22_ratio_analysis(view):
     roa = pat / assets * 100 if assets else None
     roe = pat / equity * 100 if equity else None
 
-    # Working-capital days need annualized revenue/cost and balance-sheet inputs.
-    dso = receivables / revenue * 365 if receivables and revenue else None
-    dpo = payables / actual * 365 if payables and actual else None
+    # Working-capital days use latest month-end balances against
+    # annualized latest-month flows.
+    date_col = _v22_col(view, ["Date", "date"])
+    latest_rows = view
+    if date_col:
+        _dates = pd.to_datetime(view[date_col], errors="coerce")
+        if _dates.notna().any():
+            _latest_period = _dates.max().to_period("M")
+            latest_rows = view[_dates.dt.to_period("M") == _latest_period]
+
+    latest_month_revenue = _v22_sum(latest_rows, ["Revenue USD", "Revenue"])
+    latest_month_cogs = _v22_latest(latest_rows, _v22_col(latest_rows, ["COGS"]))
+    annualized_revenue = latest_month_revenue * 12
+    annualized_cogs = latest_month_cogs * 12
+
+    dso = receivables / annualized_revenue * 365 if receivables and annualized_revenue else None
+    dpo = payables / annualized_cogs * 365 if payables and annualized_cogs else None
     ccc = None if dso is None or dpo is None else dso - dpo
 
     tabs = st.tabs([
@@ -998,7 +1012,16 @@ def _v22_ratio_analysis(view):
             ["Cash Balance", f"${cash/1_000_000:.2f}M" if cash else "N/A"],
         ]
         st.dataframe(pd.DataFrame(rows, columns=["Ratio", "Value"]), use_container_width=True, hide_index=True)
-        st.caption("Balance-sheet liquidity and leverage ratios require current-assets, liabilities, debt and equity fields.")
+        if assets or equity or debt or current_assets or current_liabilities:
+            bs_check = assets - (debt + current_liabilities + equity)
+            st.markdown("### Balance Sheet Reconciliation")
+            st.dataframe(pd.DataFrame([
+                ["Total Assets", f"${assets/1_000_000:.2f}M"],
+                ["Total Liabilities", f"${(debt + current_liabilities)/1_000_000:.2f}M"],
+                ["Total Equity", f"${equity/1_000_000:.2f}M"],
+                ["Assets − Liabilities − Equity", f"${bs_check/1_000_000:.4f}M"],
+            ], columns=["Balance Sheet Check", "Value"]), use_container_width=True, hide_index=True)
+        st.caption("V4 includes a reconciled management balance-sheet layer.")
 
     with tabs[2]:
         st.subheader("Working Capital")
@@ -1010,7 +1033,7 @@ def _v22_ratio_analysis(view):
             ["Payables", "N/A" if not payables else f"${payables/1_000_000:.2f}M"],
         ]
         st.dataframe(pd.DataFrame(wc, columns=["Metric", "Value"]), use_container_width=True, hide_index=True)
-        st.caption("DSO/DPO/CCC are calculated only when receivables/payables fields are present.")
+        st.caption("DSO/DPO/CCC use the V4 balance-sheet layer and latest-month annualized operating flows.")
 
     with tabs[3]:
         st.subheader("Market Analytics")
