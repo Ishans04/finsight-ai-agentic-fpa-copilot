@@ -1671,38 +1671,162 @@ elif page == "Risk & Anomaly Detection":
 
 
 # ============================================================
+# ============================================================
 # COST INTELLIGENCE
 # ============================================================
 elif page == "Cost Intelligence":
-    st.subheader("Cost Intelligence")
+    st.subheader("💰 Cost Intelligence")
+    st.caption("Understand cost drivers, unfavorable variance, concentration and actionable savings opportunities.")
 
+    # Core cost view
     cost = view.groupby("Cost Category", as_index=False).agg(
         Budget=("Budget USD", "sum"),
         Actual=("Actual USD", "sum"),
+        Revenue=("Revenue USD", "sum"),
+        Transactions=("Transaction ID", "count"),
     )
     cost["Variance"] = cost["Actual"] - cost["Budget"]
     cost["Variance %"] = np.where(cost["Budget"] != 0, cost["Variance"] / cost["Budget"] * 100, 0)
+    cost["Unfavorable"] = cost["Variance"].clip(lower=0)
+    total_unfav = float(cost["Unfavorable"].sum())
+    total_actual = float(cost["Actual"].sum())
+    total_budget = float(cost["Budget"].sum())
+    total_variance = total_actual - total_budget
+    cost["Share of Actual"] = np.where(total_actual != 0, cost["Actual"] / total_actual * 100, 0)
+    cost["Pareto %"] = cost.sort_values("Unfavorable", ascending=False)["Unfavorable"].cumsum() / max(total_unfav, 1) * 100
 
+    # CFO summary cards
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Actual Cost", money_usd(total_actual))
+    k2.metric("Budget", money_usd(total_budget))
+    k3.metric("Net Variance", money_usd(total_variance), delta=pct(total_variance / total_budget * 100) if total_budget else "0.0%")
+    k4.metric("Unfavorable Exposure", money_usd(total_unfav))
+
+    st.markdown("### Cost Driver Analysis")
     left, right = st.columns(2)
-
     with left:
-        fig = px.bar(cost.sort_values("Variance"), x="Variance", y="Cost Category", orientation="h", title="Top Cost Variances")
+        driver = cost.sort_values("Variance", ascending=True).copy()
+        fig = px.bar(driver, x="Variance", y="Cost Category", orientation="h", title="Budget vs Actual Variance")
         chart_layout(fig)
         st.plotly_chart(fig, use_container_width=True)
-
     with right:
-        fig = px.pie(cost, names="Cost Category", values="Actual", title="Actual Cost Mix", hole=.45)
+        mix = cost.sort_values("Actual", ascending=False).copy()
+        fig = px.bar(mix, x="Actual", y="Cost Category", orientation="h", title="Actual Cost by Category")
         chart_layout(fig)
         st.plotly_chart(fig, use_container_width=True)
 
-    display = cost.copy()
-    for c in ["Budget", "Actual", "Variance"]:
+    st.markdown("### Cost Concentration & Pareto")
+    pareto = cost.sort_values("Actual", ascending=False).copy()
+    pareto["Cumulative Share"] = pareto["Actual"].cumsum() / max(total_actual, 1) * 100
+    fig = go.Figure()
+    fig.add_trace(go.Bar(x=pareto["Cost Category"], y=pareto["Actual"], name="Actual Cost"))
+    fig.add_trace(go.Scatter(x=pareto["Cost Category"], y=pareto["Cumulative Share"], name="Cumulative %", yaxis="y2", mode="lines+markers"))
+    fig.update_layout(
+        title="Cost Concentration — Pareto View",
+        yaxis=dict(title="Actual Cost"),
+        yaxis2=dict(title="Cumulative Share %", overlaying="y", side="right", range=[0, 110]),
+        legend=dict(orientation="h", y=1.08),
+    )
+    chart_layout(fig)
+    st.plotly_chart(fig, use_container_width=True)
+
+    # Hotspot selector: Region -> Department -> Cost Category
+    st.markdown("### Cost Hotspot Drill-down")
+    h1, h2, h3 = st.columns(3)
+    regions = ["All"] + sorted(view["Region"].dropna().astype(str).unique().tolist())
+    with h1:
+        selected_region = st.selectbox("Region", regions, key="cost_region")
+    region_view = view if selected_region == "All" else view[view["Region"].astype(str) == selected_region]
+    depts = ["All"] + sorted(region_view["Department"].dropna().astype(str).unique().tolist())
+    with h2:
+        selected_dept = st.selectbox("Department", depts, key="cost_department")
+    dept_view = region_view if selected_dept == "All" else region_view[region_view["Department"].astype(str) == selected_dept]
+    categories = ["All"] + sorted(dept_view["Cost Category"].dropna().astype(str).unique().tolist())
+    with h3:
+        selected_category = st.selectbox("Cost Category", categories, key="cost_category")
+    hotspot_view = dept_view if selected_category == "All" else dept_view[dept_view["Cost Category"].astype(str) == selected_category]
+
+    hv_budget = float(hotspot_view["Budget USD"].sum())
+    hv_actual = float(hotspot_view["Actual USD"].sum())
+    hv_var = hv_actual - hv_budget
+    hv_txn = len(hotspot_view)
+    hs1, hs2, hs3, hs4 = st.columns(4)
+    hs1.metric("Selected Actual", money_usd(hv_actual))
+    hs2.metric("Selected Budget", money_usd(hv_budget))
+    hs3.metric("Variance", money_usd(hv_var))
+    hs4.metric("Transactions", f"{hv_txn:,}")
+
+    # Top transaction drivers
+    if hv_txn:
+        tx = hotspot_view[["Transaction ID", "Date", "Region", "Department", "Cost Category", "Budget USD", "Actual USD", "Variance USD"]].copy()
+        tx = tx.sort_values("Variance USD", ascending=False).head(15)
+        tx_display = tx.copy()
+        for c in ["Budget USD", "Actual USD", "Variance USD"]:
+            tx_display[c] = tx[c].map(money_usd)
+        st.dataframe(tx_display, use_container_width=True, hide_index=True)
+
+    # Savings opportunity model — conservative and transparent
+    st.markdown("### Savings Opportunity")
+    st.caption("Illustrative decision-support estimate: only unfavorable variance is considered, with a conservative 25% addressable assumption.")
+    savings = cost[cost["Unfavorable"] > 0].copy()
+    savings["Addressable Opportunity"] = savings["Unfavorable"] * 0.25
+    savings = savings.sort_values("Addressable Opportunity", ascending=False)
+    total_opportunity = float(savings["Addressable Opportunity"].sum())
+    s1, s2 = st.columns([1, 2])
+    with s1:
+        st.metric("Estimated Addressable Opportunity", money_usd(total_opportunity))
+        if total_actual:
+            st.metric("Opportunity / Actual Cost", pct(total_opportunity / total_actual * 100))
+    with s2:
+        if not savings.empty:
+            fig = px.bar(savings.head(8), x="Addressable Opportunity", y="Cost Category", orientation="h", title="Priority Savings Opportunities")
+            chart_layout(fig)
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.success("No unfavorable cost variance detected in the current view.")
+
+    st.markdown("### Management Actions")
+    top_unfavorable = cost.sort_values("Unfavorable", ascending=False).head(5)
+    for _, row in top_unfavorable.iterrows():
+        if row["Unfavorable"] <= 0:
+            continue
+        impact = money_usd(float(row["Unfavorable"]))
+        recommendation = (
+            f"Investigate {row['Cost Category']} variance of {impact}; review the largest transactions, "
+            f"validate operational drivers and identify a sustainable cost-control plan. "
+            f"Illustrative addressable opportunity: {money_usd(float(row['Unfavorable']) * 0.25)}."
+        )
+        with st.expander(f"{row['Cost Category']} · {impact} unfavorable"):
+            st.write(f"**Budget:** {money_usd(float(row['Budget']))}")
+            st.write(f"**Actual:** {money_usd(float(row['Actual']))}")
+            st.write(f"**Variance:** {impact}")
+            st.write(f"**Recommended action:** {recommendation}")
+            if st.button("🎯 Create AI CFO Management Action", key=f"cost_action_{row['Cost Category']}"):
+                created = create_cfo_action(
+                    "High" if row["Unfavorable"] > total_unfav * 0.25 else "Medium",
+                    "Cost Control",
+                    f"{row['Cost Category']} cost variance",
+                    f"{impact} unfavorable",
+                    recommendation,
+                    "Finance / Cost Owner",
+                )
+                if created:
+                    st.success("Management action created. Track it in AI CFO Action Center.")
+                else:
+                    st.info("An open management action already exists for this issue.")
+
+    st.markdown("### Cost Intelligence Register")
+    display = cost.sort_values("Unfavorable", ascending=False).copy()
+    for c in ["Budget", "Actual", "Variance", "Unfavorable"]:
         display[c] = display[c].map(money_usd)
-    display["Variance %"] = cost["Variance %"].map(pct)
+    display["Variance %"] = cost.sort_values("Unfavorable", ascending=False)["Variance %"].map(pct)
+    display["Share of Actual"] = cost.sort_values("Unfavorable", ascending=False)["Share of Actual"].map(pct)
+    display["Transactions"] = cost.sort_values("Unfavorable", ascending=False)["Transactions"].map(lambda x: f"{int(x):,}")
     st.dataframe(display, use_container_width=True, hide_index=True)
 
+    st.caption("Savings opportunities are illustrative estimates for planning and should be validated by Finance and business owners before execution.")
 
-# ============================================================
+
 # AI CFO ACTION CENTER
 # ============================================================
 elif page == "AI CFO Action Center":
