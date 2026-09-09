@@ -2287,23 +2287,290 @@ elif page == "AI CFO Action Center":
 
 
 # ============================================================
-# REPORTS
+# REPORTS LIBRARY — CFO MONTHLY BUSINESS REVIEW V16
 # ============================================================
 elif page == "Reports Library":
     st.subheader("Reports Library")
+    st.caption("Management-ready reporting pack generated from the current ERP view and AI CFO workflow.")
 
+    # -----------------------------
+    # Report controls
+    # -----------------------------
+    c1, c2, c3 = st.columns([1.2, 1.2, 1.6])
+    with c1:
+        report_type = st.selectbox(
+            "Report",
+            ["CFO Monthly Business Review", "Executive KPI Pack", "Budget vs Actual Pack", "Risk & Action Register"],
+            key="report_type_v16",
+        )
+    with c2:
+        report_period = st.selectbox(
+            "Period",
+            ["Selected Range", "Latest Month", "Latest Quarter", "YTD"],
+            key="report_period_v16",
+        )
+    with c3:
+        report_title = st.text_input("Report title", value="FinSight AI — CFO Monthly Business Review", key="report_title_v16")
+
+    report_view = view.copy()
+    report_view["Date"] = pd.to_datetime(report_view["Date"], errors="coerce")
+    report_view = report_view.dropna(subset=["Date"]).copy()
+
+    max_report_date = report_view["Date"].max()
+    if pd.notna(max_report_date):
+        if report_period == "Latest Month":
+            report_view = report_view[report_view["Date"].dt.to_period("M") == max_report_date.to_period("M")]
+        elif report_period == "Latest Quarter":
+            report_view = report_view[report_view["Date"].dt.to_period("Q") == max_report_date.to_period("Q")]
+        elif report_period == "YTD":
+            report_view = report_view[report_view["Date"].dt.year == max_report_date.year]
+
+    # -----------------------------
+    # Core management metrics
+    # -----------------------------
+    revenue_r = float(report_view.get("Revenue USD", pd.Series(dtype=float)).sum())
+    actual_r = float(report_view.get("Actual USD", pd.Series(dtype=float)).sum())
+    budget_r = float(report_view.get("Budget USD", pd.Series(dtype=float)).sum())
+    variance_r = actual_r - budget_r
+
+    def first_metric(col, default=np.nan):
+        if col not in report_view.columns:
+            return default
+        s = pd.to_numeric(report_view[col], errors="coerce").dropna()
+        return float(s.iloc[0]) if not s.empty else default
+
+    def latest_metric(col, default=np.nan):
+        if col not in report_view.columns:
+            return default
+        tmp = report_view[["Date", col]].copy()
+        tmp[col] = pd.to_numeric(tmp[col], errors="coerce")
+        tmp = tmp.dropna(subset=[col]).sort_values("Date")
+        return float(tmp.iloc[-1][col]) if not tmp.empty else default
+
+    gross_profit_r = first_metric("Gross Profit", revenue_r - actual_r)
+    ebitda_r = first_metric("EBITDA", np.nan)
+    pat_r = first_metric("PAT", np.nan)
+    cash_r = latest_metric("Closing Cash", np.nan)
+
+    if not np.isfinite(ebitda_r):
+        cogs_r = float(report_view.loc[report_view.get("Cost Type", "").astype(str).eq("COGS"), "Actual USD"].sum()) if "Cost Type" in report_view.columns else 0.0
+        opex_r = float(report_view.loc[report_view.get("Cost Type", "").astype(str).eq("Opex"), "Actual USD"].sum()) if "Cost Type" in report_view.columns else 0.0
+        ebitda_r = revenue_r - cogs_r - opex_r
+    if not np.isfinite(pat_r):
+        pat_r = ebitda_r
+    if not np.isfinite(cash_r):
+        cash_r = latest_metric("Closing Cash USD", np.nan)
+
+    gross_margin_r = gross_profit_r / revenue_r * 100 if revenue_r else 0
+    ebitda_margin_r = ebitda_r / revenue_r * 100 if revenue_r else 0
+    pat_margin_r = pat_r / revenue_r * 100 if revenue_r else 0
+    variance_pct_r = variance_r / budget_r * 100 if budget_r else 0
+    anomaly_r = int(pd.to_numeric(report_view.get("Anomaly Flag", 0), errors="coerce").fillna(0).sum())
+    risk_score_r = min(100, max(0, int(round(abs(variance_pct_r) * 100 + anomaly_r * 0.15))))
+
+    # -----------------------------
+    # Executive summary
+    # -----------------------------
+    if variance_r > 0:
+        budget_comment = f"Costs are {money_usd(variance_r)} above budget ({variance_pct_r:+.2f}%)."
+    elif variance_r < 0:
+        budget_comment = f"Costs are {money_usd(abs(variance_r))} below budget ({variance_pct_r:+.2f}%)."
+    else:
+        budget_comment = "Costs are on budget for the selected reporting period."
+
+    if ebitda_margin_r >= 20:
+        profit_comment = f"Operating profitability is strong at {ebitda_margin_r:.1f}% EBITDA margin."
+    elif ebitda_margin_r >= 15:
+        profit_comment = f"Operating profitability is healthy at {ebitda_margin_r:.1f}% EBITDA margin."
+    else:
+        profit_comment = f"Operating profitability requires attention at {ebitda_margin_r:.1f}% EBITDA margin."
+
+    risk_comment = "Risk profile is low." if risk_score_r < 15 else ("Risk profile requires monitoring." if risk_score_r < 35 else "Risk profile requires management attention.")
+
+    # -----------------------------
+    # Management P&L
+    # -----------------------------
+    cogs_r = float(report_view.loc[report_view["Cost Type"].astype(str).eq("COGS"), "Actual USD"].sum()) if "Cost Type" in report_view.columns else max(0.0, revenue_r - gross_profit_r)
+    opex_r = float(report_view.loc[report_view["Cost Type"].astype(str).eq("Opex"), "Actual USD"].sum()) if "Cost Type" in report_view.columns else max(0.0, revenue_r - gross_profit_r - ebitda_r + 0.0)
+    da_r = first_metric("D&A", 0.0)
+    interest_r = first_metric("Interest / Finance Cost", 0.0)
+    tax_r = first_metric("Tax", 0.0)
+    ebit_r = ebitda_r - da_r
+    ebt_r = ebit_r - interest_r
+
+    pnl = pd.DataFrame([
+        ["Revenue", revenue_r, "N/A", np.nan],
+        ["COGS", cogs_r, budget_r, cogs_r - budget_r],
+        ["Gross Profit", gross_profit_r, "N/A", np.nan],
+        ["Opex", opex_r, budget_r, opex_r - budget_r],
+        ["EBITDA", ebitda_r, "N/A", np.nan],
+        ["D&A", da_r, "N/A", np.nan],
+        ["EBIT", ebit_r, "N/A", np.nan],
+        ["Interest / Finance Cost", interest_r, "N/A", np.nan],
+        ["EBT", ebt_r, "N/A", np.nan],
+        ["Tax", tax_r, "N/A", np.nan],
+        ["PAT", pat_r, "N/A", np.nan],
+    ], columns=["Metric", "Actual", "Budget", "Variance"])
+
+    # -----------------------------
+    # Variance drivers
+    # -----------------------------
+    driver_col = "Cost Category" if "Cost Category" in report_view.columns else "Account / Cost Category"
+    drivers = report_view.groupby(driver_col, as_index=False).agg(Budget=("Budget USD", "sum"), Actual=("Actual USD", "sum"))
+    drivers["Variance"] = drivers["Actual"] - drivers["Budget"]
+    drivers["Variance %"] = np.where(drivers["Budget"].abs() > 0, drivers["Variance"] / drivers["Budget"].abs() * 100, 0)
+    drivers = drivers.sort_values("Variance", ascending=False)
+    top_drivers = drivers.head(8).copy()
+
+    # -----------------------------
+    # Regional performance
+    # -----------------------------
+    if "Region" in report_view.columns:
+        regional = report_view.groupby("Region", as_index=False).agg(
+            Revenue=("Revenue USD", "sum"),
+            Actual=("Actual USD", "sum"),
+            Budget=("Budget USD", "sum"),
+        )
+        regional["Variance"] = regional["Actual"] - regional["Budget"]
+        regional["Profit"] = regional["Revenue"] - regional["Actual"]
+        regional["Margin %"] = np.where(regional["Revenue"].abs() > 0, regional["Profit"] / regional["Revenue"].abs() * 100, 0)
+        regional = regional.sort_values("Revenue", ascending=False)
+    else:
+        regional = pd.DataFrame()
+
+    # -----------------------------
+    # Actions and report catalog
+    # -----------------------------
+    actions_df = pd.DataFrame(st.session_state.cfo_actions) if st.session_state.cfo_actions else pd.DataFrame()
+
+    st.markdown("### CFO Monthly Business Review")
+    st.caption(f"{report_title} • {report_period} • Generated {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}")
+
+    k1, k2, k3, k4, k5, k6 = st.columns(6)
+    k1.metric("Revenue", money_usd(revenue_r))
+    k2.metric("Gross Profit", money_usd(gross_profit_r))
+    k3.metric("EBITDA", money_usd(ebitda_r))
+    k4.metric("PAT", money_usd(pat_r))
+    k5.metric("Cash", money_usd(cash_r) if np.isfinite(cash_r) else "N/A")
+    k6.metric("Risk Score", f"{risk_score_r}/100")
+
+    st.markdown("### Executive Summary")
+    s1, s2, s3 = st.columns(3)
+    with s1:
+        st.info(f"**Budget:** {budget_comment}")
+    with s2:
+        st.success(f"**Profitability:** {profit_comment}")
+    with s3:
+        st.warning(f"**Risk:** {risk_comment} {anomaly_r:,} anomaly flags in scope.")
+
+    st.markdown("### Management P&L")
+    pnl_display = pnl.copy()
+    for col in ["Actual", "Budget", "Variance"]:
+        pnl_display[col] = pnl_display[col].apply(lambda x: money_usd(x) if isinstance(x, (int, float, np.integer, np.floating)) and np.isfinite(x) else ("N/A" if pd.isna(x) else x))
+    st.dataframe(pnl_display, use_container_width=True, hide_index=True)
+
+    st.markdown("### Top Variance Drivers")
+    if not top_drivers.empty:
+        driver_display = top_drivers.copy()
+        for col in ["Budget", "Actual", "Variance"]:
+            driver_display[col] = driver_display[col].apply(money_usd)
+        driver_display["Variance %"] = driver_display["Variance %"].map(lambda x: f"{x:+.2f}%")
+        st.dataframe(driver_display, use_container_width=True, hide_index=True)
+    else:
+        st.info("No variance drivers available.")
+
+    st.markdown("### Regional Performance")
+    if not regional.empty:
+        regional_display = regional.copy()
+        for col in ["Revenue", "Actual", "Budget", "Variance", "Profit"]:
+            regional_display[col] = regional_display[col].apply(money_usd)
+        regional_display["Margin %"] = regional_display["Margin %"].map(lambda x: f"{x:.1f}%")
+        st.dataframe(regional_display, use_container_width=True, hide_index=True)
+
+    st.markdown("### Management Actions")
+    if actions_df.empty:
+        st.info("No management actions have been created in the current session.")
+    else:
+        st.dataframe(actions_df, use_container_width=True, hide_index=True)
+
+    # -----------------------------
+    # Downloadable management pack
+    # -----------------------------
+    def html_table(frame):
+        return frame.to_html(index=False, border=0, classes="data-table", escape=True)
+
+    report_html = f"""<!doctype html>
+<html><head><meta charset='utf-8'><title>{report_title}</title>
+<style>
+body{{font-family:Arial,sans-serif;background:#f4f7fb;color:#172033;margin:0;padding:32px}}
+.container{{max-width:1100px;margin:auto;background:white;padding:36px;border-radius:16px}}
+h1{{margin-bottom:4px}} h2{{margin-top:30px;border-bottom:2px solid #d9e2ef;padding-bottom:8px}}
+.meta{{color:#64748b;margin-bottom:24px}}
+.kpis{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}}
+.kpi{{background:#eef5fb;padding:18px;border-radius:10px}} .label{{font-size:12px;color:#64748b}} .value{{font-size:24px;font-weight:700;margin-top:6px}}
+.summary{{padding:14px;background:#f8fafc;border-left:4px solid #3b82f6;margin:8px 0}}
+.data-table{{width:100%;border-collapse:collapse;font-size:13px}} .data-table th,.data-table td{{padding:8px;border-bottom:1px solid #e2e8f0;text-align:left}} .data-table th{{background:#f1f5f9}}
+.footer{{margin-top:30px;color:#64748b;font-size:12px}}
+</style></head><body><div class='container'>
+<h1>{report_title}</h1><div class='meta'>{report_period} • Generated {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}</div>
+<div class='kpis'>
+<div class='kpi'><div class='label'>Revenue</div><div class='value'>{money_usd(revenue_r)}</div></div>
+<div class='kpi'><div class='label'>Gross Profit</div><div class='value'>{money_usd(gross_profit_r)}</div></div>
+<div class='kpi'><div class='label'>EBITDA</div><div class='value'>{money_usd(ebitda_r)}</div></div>
+<div class='kpi'><div class='label'>PAT</div><div class='value'>{money_usd(pat_r)}</div></div>
+<div class='kpi'><div class='label'>Cash Balance</div><div class='value'>{money_usd(cash_r) if np.isfinite(cash_r) else 'N/A'}</div></div>
+<div class='kpi'><div class='label'>Risk Score</div><div class='value'>{risk_score_r}/100</div></div>
+</div>
+<h2>Executive Summary</h2>
+<div class='summary'><b>Budget:</b> {budget_comment}</div>
+<div class='summary'><b>Profitability:</b> {profit_comment}</div>
+<div class='summary'><b>Risk:</b> {risk_comment} {anomaly_r:,} anomaly flags in scope.</div>
+<h2>Management P&amp;L</h2>{html_table(pnl_display)}
+<h2>Top Variance Drivers</h2>{html_table(driver_display if not top_drivers.empty else pd.DataFrame({'Message':['No variance drivers available.']}))}
+<h2>Regional Performance</h2>{html_table(regional_display if not regional.empty else pd.DataFrame({'Message':['No regional data available.']}))}
+<h2>Management Actions</h2>{html_table(actions_df if not actions_df.empty else pd.DataFrame({'Message':['No management actions created in the current session.']}))}
+<div class='footer'>FinSight AI — AI CFO / Agentic FP&amp;A prototype. USD is the group consolidation base. Cash-flow outputs may be modeled when live treasury data is unavailable.</div>
+</div></body></html>"""
+
+    st.markdown("### Report Downloads")
+    st.download_button(
+        "Download CFO Business Review (HTML)",
+        data=report_html.encode("utf-8"),
+        file_name="finsight_cfo_monthly_business_review.html",
+        mime="text/html",
+        key="download_cfo_report_v16",
+    )
+
+    st.download_button(
+        "Download P&L (CSV)",
+        data=pnl.to_csv(index=False).encode("utf-8"),
+        file_name="finsight_management_pnl.csv",
+        mime="text/csv",
+        key="download_pnl_v16",
+    )
+
+    st.download_button(
+        "Download Variance Drivers (CSV)",
+        data=top_drivers.to_csv(index=False).encode("utf-8"),
+        file_name="finsight_variance_drivers.csv",
+        mime="text/csv",
+        key="download_variance_v16",
+    )
+
+    st.markdown("### Report Catalog")
     reports = pd.DataFrame({
         "Report": [
+            "CFO Monthly Business Review",
             "Executive KPI Pack",
-            "Budget vs Actual",
+            "Budget vs Actual Pack",
             "Regional Performance",
-            "Cost Intelligence",
+            "Cost Intelligence Pack",
             "Risk & Anomaly Register",
             "Forecast & Scenario Pack",
             "Management Action Register",
         ],
-        "Frequency": ["Monthly", "Monthly", "Monthly", "Monthly", "Weekly", "Monthly", "Weekly"],
-        "Status": ["Ready", "Ready", "Ready", "Ready", "Ready", "Ready", "Ready"],
+        "Frequency": ["Monthly", "Monthly", "Monthly", "Monthly", "Monthly", "Weekly", "Monthly", "Weekly"],
+        "Status": ["Ready", "Ready", "Ready", "Ready", "Ready", "Ready", "Ready", "Ready"],
     })
     st.dataframe(reports, use_container_width=True, hide_index=True)
 
