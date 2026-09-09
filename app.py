@@ -1507,36 +1507,167 @@ elif page == "What-if Scenarios":
 
 
 # ============================================================
-# RISK
+# RISK & ANOMALY DETECTION
 # ============================================================
 elif page == "Risk & Anomaly Detection":
-    st.subheader("Risk & Anomaly Detection")
+    st.subheader("🛡️ Risk & Anomaly Detection")
+    st.caption("Detect material financial risk, explain the drivers and route high-priority findings into the AI CFO Action Center.")
 
     risk = view.copy()
-    numeric = risk[["Budget USD", "Actual USD", "Revenue USD", "Variance USD"]].fillna(0)
+    required_numeric = ["Budget USD", "Actual USD", "Revenue USD", "Variance USD"]
+    for col in required_numeric:
+        risk[col] = pd.to_numeric(risk[col], errors="coerce").fillna(0.0)
 
+    # Deterministic financial risk layer.
+    risk["Unfavorable Variance"] = np.maximum(risk["Variance USD"], 0.0)
+    risk["Variance Severity"] = risk["Variance %"].abs().clip(0, 100)
+    risk["Anomaly Points"] = np.where(risk["Anomaly Flag"] == 1, 35, 0)
+
+    # AI anomaly layer using transaction-level financial signals.
     if len(risk) >= 20:
+        features = risk[["Budget USD", "Actual USD", "Revenue USD", "Variance USD"]].copy()
+        features["Variance %"] = risk["Variance %"].fillna(0)
+        features = features.replace([np.inf, -np.inf], 0).fillna(0)
         model = IsolationForest(contamination=0.03, random_state=42)
-        prediction = model.fit_predict(numeric)
+        prediction = model.fit_predict(features)
         risk["AI Anomaly"] = np.where(prediction == -1, "AI Flag", "Normal")
     else:
         risk["AI Anomaly"] = "Insufficient sample"
 
+    risk["AI Points"] = np.where(risk["AI Anomaly"] == "AI Flag", 25, 0)
+    risk["Magnitude Points"] = np.minimum(
+        (risk["Unfavorable Variance"] / max(risk["Unfavorable Variance"].quantile(0.90), 1.0)) * 25,
+        25,
+    )
     risk["Risk Score"] = (
-        risk["Variance %"].abs().clip(0, 100) * 0.6
-        + risk["Anomaly Flag"] * 40
+        risk["Variance Severity"] * 0.35
+        + risk["Anomaly Points"]
+        + risk["AI Points"]
+        + risk["Magnitude Points"]
     ).clip(0, 100)
 
-    a, b, c = st.columns(3)
-    a.metric("Source Anomalies", f"{int(risk['Anomaly Flag'].sum()):,}")
-    b.metric("AI Flags", f"{int((risk['AI Anomaly'] == 'AI Flag').sum()):,}")
-    c.metric("High Risk Transactions", f"{int((risk['Risk Score'] >= 70).sum()):,}")
+    risk["Risk Level"] = np.select(
+        [risk["Risk Score"] >= 70, risk["Risk Score"] >= 40],
+        ["Critical", "High"],
+        default="Moderate",
+    )
 
+    financial_exposure = risk["Unfavorable Variance"].sum()
+    high_risk = int((risk["Risk Score"] >= 70).sum())
+    ai_flags = int((risk["AI Anomaly"] == "AI Flag").sum())
+    source_flags = int(risk["Anomaly Flag"].sum())
+    enterprise_score = float(risk["Risk Score"].mean()) if len(risk) else 0.0
+
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Enterprise Risk Score", f"{enterprise_score:.0f}/100")
+    k2.metric("Financial Exposure", money_usd(financial_exposure))
+    k3.metric("High / Critical Risks", f"{high_risk:,}")
+    k4.metric("AI / Source Flags", f"{ai_flags:,} / {source_flags:,}")
+
+    if enterprise_score >= 70:
+        st.error(f"🔴 Critical risk posture — {money_usd(financial_exposure)} of unfavorable variance exposure requires management attention.")
+    elif enterprise_score >= 40:
+        st.warning(f"🟠 Elevated risk posture — {money_usd(financial_exposure)} of unfavorable variance exposure should be reviewed.")
+    else:
+        st.success(f"🟢 Controlled risk posture — enterprise risk score is {enterprise_score:.0f}/100.")
+
+    st.markdown("### Risk Hotspots")
+    group_cols = ["Region", "Department", "Cost Category"]
+    hotspot = risk.groupby(group_cols, as_index=False).agg(
+        Financial_Exposure=("Unfavorable Variance", "sum"),
+        Variance=("Variance USD", "sum"),
+        Transactions=("Transaction ID", "count"),
+        Source_Flags=("Anomaly Flag", "sum"),
+        Max_Risk=("Risk Score", "max"),
+    )
+    hotspot["Priority"] = np.select(
+        [hotspot["Max_Risk"] >= 70, hotspot["Max_Risk"] >= 40],
+        ["Critical", "High"],
+        default="Moderate",
+    )
+    hotspot = hotspot.sort_values(["Priority", "Financial_Exposure"], ascending=[True, False])
+
+    hleft, hright = st.columns([1.25, 1])
+    with hleft:
+        chart = hotspot.sort_values("Financial_Exposure", ascending=False).head(12).copy()
+        chart["Label"] = chart["Region"] + " · " + chart["Department"] + " · " + chart["Cost Category"]
+        fig = px.bar(
+            chart.sort_values("Financial_Exposure"),
+            x="Financial_Exposure",
+            y="Label",
+            orientation="h",
+            title="Top Financial Risk Exposure",
+            labels={"Financial_Exposure": "Unfavorable Variance ($)"},
+        )
+        chart_layout(fig)
+        st.plotly_chart(fig, use_container_width=True)
+
+    with hright:
+        level_counts = risk["Risk Level"].value_counts().reindex(["Critical", "High", "Moderate"], fill_value=0).reset_index()
+        level_counts.columns = ["Risk Level", "Transactions"]
+        fig = px.bar(level_counts, x="Risk Level", y="Transactions", title="Risk Severity")
+        chart_layout(fig)
+        st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown("### Investigation Path")
+    if not hotspot.empty:
+        selected_hotspot = st.selectbox(
+            "Select a risk hotspot",
+            hotspot.index.tolist(),
+            format_func=lambda idx: f"{hotspot.loc[idx, 'Region']} → {hotspot.loc[idx, 'Department']} → {hotspot.loc[idx, 'Cost Category']} | {money_usd(hotspot.loc[idx, 'Financial_Exposure'])} exposure",
+            key="risk_hotspot_select",
+        )
+        selected = hotspot.loc[selected_hotspot]
+        h1, h2, h3, h4 = st.columns(4)
+        h1.metric("Exposure", money_usd(selected["Financial_Exposure"]))
+        h2.metric("Variance", money_usd(selected["Variance"]))
+        h3.metric("Transactions", f"{int(selected['Transactions']):,}")
+        h4.metric("Peak Risk", f"{selected['Max_Risk']:.0f}/100")
+
+        selected_rows = risk[
+            (risk["Region"] == selected["Region"])
+            & (risk["Department"] == selected["Department"])
+            & (risk["Cost Category"] == selected["Cost Category"])
+        ].copy()
+        selected_rows = selected_rows.sort_values("Risk Score", ascending=False).head(15)
+
+        display = selected_rows[["Transaction ID", "Date", "Region", "Department", "Cost Category", "Budget USD", "Actual USD", "Variance USD", "Variance %", "Risk Score", "Risk Level", "AI Anomaly"]].copy()
+        for col in ["Budget USD", "Actual USD", "Variance USD"]:
+            display[col] = display[col].map(money_usd)
+        display["Variance %"] = selected_rows["Variance %"].map(pct)
+        display["Risk Score"] = selected_rows["Risk Score"].map(lambda x: f"{x:.0f}/100")
+        st.dataframe(display, use_container_width=True, hide_index=True)
+
+        exposure_text = money_usd(float(selected["Financial_Exposure"]))
+        issue = f"Risk hotspot: {selected['Region']} / {selected['Department']} / {selected['Cost Category']}"
+        recommendation = (
+            f"Investigate {selected['Cost Category']} spend in {selected['Department']} ({selected['Region']}), "
+            f"review the largest unfavorable transactions and validate the underlying budget and operational drivers. "
+            f"Estimated unfavorable exposure: {exposure_text}."
+        )
+        if st.button("🎯 Create AI CFO Management Action", key="create_risk_action"):
+            created = create_cfo_action(
+                "High" if selected["Max_Risk"] >= 40 else "Medium",
+                "Risk & Controls",
+                issue,
+                f"{exposure_text} unfavorable",
+                recommendation,
+                "Finance Controller",
+            )
+            if created:
+                st.success("Management action created. Open AI CFO Action Center to track it.")
+            else:
+                st.info("An open management action already exists for this risk hotspot.")
+
+    st.markdown("### Risk Register")
     top = risk.sort_values("Risk Score", ascending=False).head(25).copy()
-    for c in ["Budget USD", "Actual USD", "Revenue USD", "Variance USD"]:
-        top[c] = top[c].map(money_usd)
-    top["Risk Score"] = risk.sort_values("Risk Score", ascending=False).head(25)["Risk Score"].map(lambda x: f"{x:.0f}")
+    for col in ["Budget USD", "Actual USD", "Revenue USD", "Variance USD"]:
+        top[col] = top[col].map(money_usd)
+    top["Variance %"] = risk.sort_values("Risk Score", ascending=False).head(25)["Variance %"].map(pct)
+    top["Risk Score"] = risk.sort_values("Risk Score", ascending=False).head(25)["Risk Score"].map(lambda x: f"{x:.0f}/100")
     st.dataframe(top, use_container_width=True, hide_index=True)
+
+    st.caption("Risk scoring combines financial variance severity, source anomaly flags, AI anomaly detection and transaction magnitude. It is a decision-support score, not a statutory or credit risk rating.")
 
 
 # ============================================================
