@@ -64,8 +64,9 @@ st.markdown("""
     background: linear-gradient(180deg,#102238,#0d1c2c);
     border: 1px solid #284864;
     border-radius: 16px;
-    padding: 18px 19px;
+    padding: 16px 14px;
     min-height: 126px;
+    overflow: hidden;
 }
 .kpi-label {
     color: #91aec8;
@@ -75,9 +76,13 @@ st.markdown("""
 }
 .kpi-value {
     color: #f7fafc;
-    font-size: 25px;
+    font-size: 21px;
     font-weight: 800;
     margin-top: 9px;
+    white-space: nowrap;
+    overflow: visible;
+    text-overflow: clip;
+    letter-spacing: -0.02em;
 }
 .kpi-note {
     color: #54d6b1;
