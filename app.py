@@ -828,77 +828,68 @@ if page == "Executive Dashboard":
 
 
 # ============================================================
-# AI CFO
+# AI CFO — MULTI-STEP INVESTIGATION V18
 # ============================================================
 elif page == "AI CFO":
     st.subheader("🤖 AI CFO")
-    st.caption("Decision-support engine that converts financial signals into explainable management actions.")
+    st.caption("Multi-step financial investigation engine: detect → quantify → trace the driver → explain → recommend → route to action.")
+
+    ai = view.copy()
+    for col in ["Budget USD", "Actual USD", "Revenue USD", "Variance USD", "Profit USD"]:
+        if col in ai.columns:
+            ai[col] = pd.to_numeric(ai[col], errors="coerce").fillna(0.0)
+    ai["Unfavorable Variance"] = ai["Variance USD"].clip(lower=0)
+
+    # --------------------------------------------------------
+    # Step 1 — Materiality scan
+    # --------------------------------------------------------
+    total_budget = float(ai["Budget USD"].sum())
+    total_actual = float(ai["Actual USD"].sum())
+    total_variance = float(ai["Variance USD"].sum())
+    unfavorable = float(ai["Unfavorable Variance"].sum())
+    anomalies = int(pd.to_numeric(ai.get("Anomaly Flag", 0), errors="coerce").fillna(0).sum())
 
     findings = []
-    cost_overrun = float(max(variance, 0))
-    if cost_overrun > 0:
+    if unfavorable > 0:
         findings.append({
-            "Priority": "High", "Area": "Cost Control",
+            "Priority": "High" if unfavorable / max(total_budget, 1) >= 0.03 else "Medium",
+            "Area": "Cost Control",
             "Issue": "Cost over budget",
-            "Finding": f"Actual cost exceeds budget by {money_usd(cost_overrun)}.",
-            "Impact": money_usd(cost_overrun),
-            "Risk": "Margin and cash pressure if the overrun persists.",
-            "Recommendation": "Review the largest unfavorable cost categories, cost centers and transaction-level drivers.",
+            "Finding": f"Actual cost is {money_usd(total_variance)} above budget on the current scope.",
+            "Impact": money_usd(unfavorable),
+            "Risk": "Margin and cash pressure if the unfavorable variance persists.",
+            "Recommendation": "Trace the variance through Region → Department → Cost Category → GL → Transaction and address the largest controllable drivers.",
             "Owner": "Finance Controller",
         })
-
-    if margin < 60:
-        findings.append({
-            "Priority": "High", "Area": "Profitability",
-            "Issue": "Margin pressure",
-            "Finding": f"Current consolidated margin is {pct(margin)}.",
-            "Impact": "Profitability risk",
-            "Risk": "Lower earnings conversion and reduced headroom for investment.",
-            "Recommendation": "Review pricing, delivery economics and high-growth cost categories.",
-            "Owner": "CFO / FP&A",
-        })
-    elif margin < 70:
-        findings.append({
-            "Priority": "Medium", "Area": "Profitability",
-            "Issue": "Margin watch",
-            "Finding": f"Current consolidated margin is {pct(margin)}.",
-            "Impact": "Margin monitoring",
-            "Risk": "Further cost inflation could compress profitability.",
-            "Recommendation": "Monitor margin trend and investigate unfavorable cost movement.",
-            "Owner": "FP&A",
-        })
-
-    anomalies = int(view["Anomaly Flag"].sum())
     if anomalies:
         findings.append({
-            "Priority": "High", "Area": "Risk & Controls",
+            "Priority": "High" if anomalies >= 25 else "Medium",
+            "Area": "Risk & Controls",
             "Issue": "Anomaly exposure",
-            "Finding": f"{anomalies:,} transaction(s) are flagged for investigation.",
+            "Finding": f"{anomalies:,} transaction(s) carry source anomaly flags in the current scope.",
             "Impact": f"{anomalies:,} transactions",
-            "Risk": "Potential control, posting or unusual-spend risk.",
-            "Recommendation": "Prioritize the highest-value anomalies and document investigation outcomes.",
+            "Risk": "Potential unusual-spend, posting or control risk.",
+            "Recommendation": "Prioritize high-value anomalous transactions and document investigation outcomes.",
             "Owner": "Controller",
         })
 
     if not findings:
         findings.append({
-            "Priority": "Low", "Area": "Financial Health",
-            "Issue": "No material exception detected",
-            "Finding": "No high-priority management exception was generated from the current view.",
-            "Impact": "Monitoring",
-            "Risk": "Low",
-            "Recommendation": "Continue routine monitoring and periodic forecast review.",
-            "Owner": "FP&A",
+            "Priority": "Low", "Area": "Financial Health", "Issue": "No material exception detected",
+            "Finding": "No material management exception was detected from the current scope.",
+            "Impact": "Monitoring", "Risk": "Low",
+            "Recommendation": "Continue routine monitoring and periodic forecast review.", "Owner": "FP&A",
         })
 
     open_count, progress_count, resolved_count = action_status_counts()
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("AI Findings", len(findings))
-    k2.metric("Open Actions", open_count)
-    k3.metric("In Progress", progress_count)
-    k4.metric("Resolved", resolved_count)
+    k1, k2, k3, k4, k5 = st.columns(5)
+    k1.metric("Material Signals", len(findings))
+    k2.metric("Unfavorable Exposure", money_usd(unfavorable))
+    k3.metric("Anomalies", f"{anomalies:,}")
+    k4.metric("Open Actions", open_count)
+    k5.metric("Resolved", resolved_count)
 
-    st.markdown("### AI CFO Findings")
+    st.markdown("### CFO Monitoring Feed")
     for idx, f in enumerate(findings):
         cls = "danger" if f["Priority"] == "High" else "warning" if f["Priority"] == "Medium" else "insight"
         html_block(
@@ -908,84 +899,206 @@ elif page == "AI CFO":
         with st.expander(f"🔎 Investigate: {f['Issue']}"):
             c1, c2 = st.columns(2)
             with c1:
-                st.write(f"**Finding**  ")
+                st.write("**Finding**")
                 st.write(f["Finding"])
-                st.write(f"**Financial impact**  ")
+                st.write("**Financial impact**")
                 st.write(f["Impact"])
-                st.write(f"**Risk**  ")
+                st.write("**Risk**")
                 st.write(f["Risk"])
             with c2:
-                st.write(f"**Recommended action**  ")
+                st.write("**Recommended action**")
                 st.write(f["Recommendation"])
-                st.write(f"**Owner**  ")
+                st.write("**Owner**")
                 st.write(f["Owner"])
                 if st.button("Create Management Action", key=f"create_ai_action_{idx}"):
-                    created = create_cfo_action(
-                        f["Priority"], f["Area"], f["Issue"], f["Impact"], f["Recommendation"], f["Owner"]
-                    )
+                    created = create_cfo_action(f["Priority"], f["Area"], f["Issue"], f["Impact"], f["Recommendation"], f["Owner"])
                     if created:
                         st.success("Management action created and added to the Action Center.")
                     else:
                         st.info("An open action for this issue already exists.")
 
-    st.subheader("CFO Executive Brief")
-    st.info(
-        f"Revenue is {money_usd(revenue)}, actual cost is {money_usd(actual)}, "
-        f"budget is {money_usd(budget)}, and profit margin is {pct(margin)}. "
-        f"The current cost variance is {money_usd(variance)}. "
-        f"The AI CFO has generated {len(findings)} management signal(s)."
-    )
+    # --------------------------------------------------------
+    # Step 2–5 — Multi-step driver investigation
+    # --------------------------------------------------------
+    st.markdown("### 🧠 Multi-Step CFO Investigation")
+    st.caption("Select a starting scope. FinSight then traces the unfavorable variance down the management hierarchy and surfaces the highest-value drivers.")
 
-    st.markdown("### Ask the CFO")
+    level1, level2 = st.columns(2)
+    with level1:
+        regions = ["All Regions"] + sorted(ai["Region"].dropna().astype(str).unique().tolist())
+        selected_region = st.selectbox("1 · Region", regions, key="ai_region_v18")
+    with level2:
+        countries = ["All Countries"] + sorted(ai["Country"].dropna().astype(str).unique().tolist())
+        selected_country = st.selectbox("Country", countries, key="ai_country_v18")
+
+    scoped = ai.copy()
+    scope_parts = []
+    if selected_region != "All Regions":
+        scoped = scoped[scoped["Region"].astype(str) == selected_region]
+        scope_parts.append(selected_region)
+    if selected_country != "All Countries":
+        scoped = scoped[scoped["Country"].astype(str) == selected_country]
+        scope_parts.append(selected_country)
+
+    if scoped.empty:
+        st.warning("No transactions match the selected scope.")
+    else:
+        # Step 2: Region/country scope -> department
+        dept = scoped.groupby("Department", as_index=False).agg(
+            Budget=("Budget USD", "sum"), Actual=("Actual USD", "sum"),
+            Unfavorable=("Unfavorable Variance", "sum"), Transactions=("Transaction ID", "count")
+        )
+        dept["Variance"] = dept["Actual"] - dept["Budget"]
+        dept = dept.sort_values("Unfavorable", ascending=False)
+        dept_options = dept["Department"].tolist()
+        selected_dept = st.selectbox("2 · Department", ["All Departments"] + dept_options, key="ai_dept_v18")
+
+        scoped2 = scoped.copy()
+        if selected_dept != "All Departments":
+            scoped2 = scoped2[scoped2["Department"].astype(str) == selected_dept]
+
+        # Step 3: department -> cost category
+        cat = scoped2.groupby("Cost Category", as_index=False).agg(
+            Budget=("Budget USD", "sum"), Actual=("Actual USD", "sum"),
+            Unfavorable=("Unfavorable Variance", "sum"), Transactions=("Transaction ID", "count")
+        )
+        cat["Variance"] = cat["Actual"] - cat["Budget"]
+        cat = cat.sort_values("Unfavorable", ascending=False)
+        cat_options = cat["Cost Category"].tolist()
+        selected_cat = st.selectbox("3 · Cost Category", ["All Categories"] + cat_options, key="ai_cat_v18")
+
+        scoped3 = scoped2.copy()
+        if selected_cat != "All Categories":
+            scoped3 = scoped3[scoped3["Cost Category"].astype(str) == selected_cat]
+
+        # Step 4: category -> GL account
+        gl = scoped3.groupby("GL Account", as_index=False).agg(
+            Budget=("Budget USD", "sum"), Actual=("Actual USD", "sum"),
+            Unfavorable=("Unfavorable Variance", "sum"), Transactions=("Transaction ID", "count")
+        )
+        gl["Variance"] = gl["Actual"] - gl["Budget"]
+        gl = gl.sort_values("Unfavorable", ascending=False)
+        gl_options = gl["GL Account"].astype(str).tolist()
+        selected_gl = st.selectbox("4 · GL Account", ["All GL Accounts"] + gl_options, key="ai_gl_v18")
+
+        scoped4 = scoped3.copy()
+        if selected_gl != "All GL Accounts":
+            scoped4 = scoped4[scoped4["GL Account"].astype(str) == selected_gl]
+
+        # Step 5: transaction-level evidence
+        txn = scoped4.copy()
+        txn["Unfavorable Variance"] = txn["Variance USD"].clip(lower=0)
+        txn = txn.sort_values(["Unfavorable Variance", "Actual USD"], ascending=False).head(10)
+
+        final_budget = float(scoped4["Budget USD"].sum())
+        final_actual = float(scoped4["Actual USD"].sum())
+        final_variance = final_actual - final_budget
+        final_unfav = float(max(final_variance, 0))
+        final_anomalies = int(pd.to_numeric(scoped4.get("Anomaly Flag", 0), errors="coerce").fillna(0).sum())
+
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Scoped Budget", money_usd(final_budget))
+        m2.metric("Scoped Actual", money_usd(final_actual))
+        m3.metric("Unfavorable Variance", money_usd(final_unfav))
+        m4.metric("Anomaly Flags", f"{final_anomalies:,}")
+
+        if final_unfav > 0:
+            # Root-cause ranking inside the selected scope.
+            root = scoped4.groupby("Cost Category", as_index=False).agg(Unfavorable=("Unfavorable Variance", "sum"), Actual=("Actual USD", "sum"))
+            root = root.sort_values("Unfavorable", ascending=False)
+            root_driver = root.iloc[0] if not root.empty else None
+            if root_driver is not None:
+                driver_name = str(root_driver["Cost Category"])
+                driver_impact = float(root_driver["Unfavorable"])
+                share = driver_impact / final_unfav * 100 if final_unfav else 0
+                scope_label = " → ".join(scope_parts) if scope_parts else "All Regions / Countries"
+                st.success(
+                    f"**CFO conclusion:** Within {scope_label}, the selected management path has "
+                    f"{money_usd(final_unfav)} unfavorable exposure. **{driver_name}** is the largest "
+                    f"remaining cost driver at {money_usd(driver_impact)} ({share:.1f}% of scoped unfavorable exposure)."
+                )
+                recommendation = (
+                    f"Investigate {driver_name} within the selected management path, starting with the highest-value transactions. "
+                    f"Validate budget assumptions, headcount/vendor drivers and posting accuracy before approving corrective action."
+                )
+                r1, r2 = st.columns([2, 1])
+                with r1:
+                    st.write("**AI CFO recommended next step**")
+                    st.write(recommendation)
+                with r2:
+                    if st.button("🎯 Create Driver Action", key="ai_driver_action_v18"):
+                        issue = f"Unfavorable driver: {driver_name}"
+                        created = create_cfo_action(
+                            "High" if share >= 25 else "Medium",
+                            "AI CFO Investigation",
+                            issue,
+                            money_usd(driver_impact),
+                            recommendation,
+                            "Finance Controller",
+                        )
+                        if created:
+                            st.success("Driver action created in Action Center.")
+                        else:
+                            st.info("An open action for this driver already exists.")
+
+        st.markdown("#### Transaction Evidence")
+        display_cols = ["Transaction ID", "Date", "Region", "Department", "Cost Category", "GL Account", "Budget USD", "Actual USD", "Variance USD", "Anomaly Flag"]
+        display_cols = [c for c in display_cols if c in txn.columns]
+        evidence = txn[display_cols].copy()
+        for c in ["Budget USD", "Actual USD", "Variance USD"]:
+            if c in evidence.columns:
+                evidence[c] = evidence[c].map(money_usd)
+        st.dataframe(evidence, use_container_width=True, hide_index=True)
+
+    # --------------------------------------------------------
+    # Ask the CFO — scoped natural-language routing
+    # --------------------------------------------------------
+    st.markdown("### 💬 Ask the CFO")
     question = st.text_input(
         "Ask a finance question",
-        placeholder="Why is cost above budget? Which region is driving the variance?",
+        placeholder="Why is cost above budget in EMEA? Which department is driving Payroll variance?",
+        key="ask_cfo_v18",
     )
-
     if question:
         q = question.lower()
-        q_view = view.copy()
+        q_view = ai.copy()
         applied_filters = []
-        for region_name in sorted(df["Region"].dropna().astype(str).unique(), key=len, reverse=True):
-            if region_name.lower() in q:
-                q_view = q_view[q_view["Region"].astype(str).str.lower() == region_name.lower()]
-                applied_filters.append(f"Region={region_name}")
-                break
-        for country_name in sorted(df["Country"].dropna().astype(str).unique(), key=len, reverse=True):
-            if country_name.lower() in q:
-                q_view = q_view[q_view["Country"].astype(str).str.lower() == country_name.lower()]
-                applied_filters.append(f"Country={country_name}")
-                break
-        for category_name in sorted(df["Cost Category"].dropna().astype(str).unique(), key=len, reverse=True):
-            if category_name.lower() in q:
-                q_view = q_view[q_view["Cost Category"].astype(str).str.lower() == category_name.lower()]
-                applied_filters.append(f"Cost Category={category_name}")
-                break
+        for col, label in [("Region", "Region"), ("Country", "Country"), ("Department", "Department"), ("Cost Category", "Cost Category"), ("GL Account", "GL Account")]:
+            values = sorted(ai[col].dropna().astype(str).unique(), key=len, reverse=True)
+            for value in values:
+                if value.lower() in q:
+                    q_view = q_view[q_view[col].astype(str).str.lower() == value.lower()]
+                    applied_filters.append(f"{label}={value}")
+                    break
 
         if q_view.empty:
             st.warning("No transactions matched the dimensions detected in the question.")
         else:
+            scope = ", ".join(applied_filters) if applied_filters else "current filtered view"
             if "department" in q:
                 temp = q_view.groupby("Department", as_index=False).agg(Budget=("Budget USD", "sum"), Actual=("Actual USD", "sum"))
                 temp["Variance"] = temp["Actual"] - temp["Budget"]
                 top = temp.sort_values("Variance", ascending=False).iloc[0]
-                scope = ", ".join(applied_filters) if applied_filters else "current filtered view"
-                st.success(f"Within {scope}, {top['Department']} is the largest unfavorable departmental variance at {money_usd(top['Variance'])}.")
+                st.success(f"Within {scope}, **{top['Department']}** is the largest unfavorable departmental variance at **{money_usd(max(float(top['Variance']),0))}**.")
             elif "region" in q or "business unit" in q:
                 temp = q_view.groupby("Region", as_index=False).agg(Budget=("Budget USD", "sum"), Actual=("Actual USD", "sum"))
                 temp["Variance"] = temp["Actual"] - temp["Budget"]
                 top = temp.sort_values("Variance", ascending=False).iloc[0]
-                scope = ", ".join(applied_filters) if applied_filters else "current filtered view"
-                st.success(f"Within {scope}, {top['Region']} is the largest unfavorable regional variance at {money_usd(top['Variance'])}.")
-            elif "cost" in q or "category" in q or "driver" in q:
+                st.success(f"Within {scope}, **{top['Region']}** is the largest unfavorable regional variance at **{money_usd(max(float(top['Variance']),0))}**.")
+            elif "cost" in q or "category" in q or "driver" in q or "payroll" in q:
                 temp = q_view.groupby("Cost Category", as_index=False).agg(Budget=("Budget USD", "sum"), Actual=("Actual USD", "sum"))
                 temp["Variance"] = temp["Actual"] - temp["Budget"]
                 top = temp.sort_values("Variance", ascending=False).iloc[0]
-                scope = ", ".join(applied_filters) if applied_filters else "current filtered view"
-                st.success(f"Within {scope}, {top['Cost Category']} is the largest unfavorable cost driver at {money_usd(top['Variance'])}.")
+                st.success(f"Within {scope}, **{top['Cost Category']}** is the largest unfavorable cost driver at **{money_usd(max(float(top['Variance']),0))}**.")
             else:
-                st.info("Try asking about a region, department, cost category, budget variance, or driver.")
+                st.info("Ask about a region, department, cost category, GL account, budget variance, or driver.")
 
+    st.subheader("CFO Executive Brief")
+    st.info(
+        f"Revenue is {money_usd(float(ai['Revenue USD'].sum()))}, actual cost is {money_usd(total_actual)}, "
+        f"budget is {money_usd(total_budget)}, and unfavorable cost exposure is {money_usd(unfavorable)}. "
+        f"The multi-step investigation engine is ready to trace material exceptions to transaction evidence."
+    )
 
 # ============================================================
 # FINANCIAL PERFORMANCE — MANAGEMENT P&L V13
