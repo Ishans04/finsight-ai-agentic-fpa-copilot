@@ -1284,30 +1284,168 @@ elif page == "Cash Flow Center":
 # ============================================================
 elif page == "Budget vs Actuals":
     st.subheader("Budget vs Actuals")
+    st.caption("CFO variance engine: Budget → Actual → Variance → Root Cause → Management Action.")
 
-    field = st.selectbox("Analyze by", ["Region", "Department", "Cost Category", "GL Account", "Cost Center", "Profit Center"])
+    bva = view.copy()
+    bva["Date"] = pd.to_datetime(bva["Date"], errors="coerce")
+    bva = bva.dropna(subset=["Date"])
 
-    if field not in view.columns:
-        st.info(f"{field} is not present in the uploaded ERP dataset.")
+    # V3 Budget / Actual fields represent cost planning. Revenue does not have a
+    # separate Revenue Budget field, so this module deliberately does not invent one.
+    total_budget = float(pd.to_numeric(bva["Budget USD"], errors="coerce").fillna(0).sum())
+    total_actual = float(pd.to_numeric(bva["Actual USD"], errors="coerce").fillna(0).sum())
+    total_variance = total_actual - total_budget
+    total_variance_pct = (total_variance / total_budget * 100) if total_budget else 0.0
+    unfavorable = max(total_variance, 0.0)
+    favorable = max(-total_variance, 0.0)
+
+    k1, k2, k3, k4, k5 = st.columns(5)
+    with k1:
+        st.metric("Budget", money_usd(total_budget))
+    with k2:
+        st.metric("Actual", money_usd(total_actual))
+    with k3:
+        st.metric("Net Variance", money_usd(total_variance), delta=f"{total_variance_pct:+.2f}%")
+    with k4:
+        st.metric("Unfavorable Exposure", money_usd(unfavorable))
+    with k5:
+        status = "Over Budget" if total_variance > 0 else "Within / Under Budget"
+        st.metric("Control Status", status)
+
+    if total_variance > 0:
+        st.error(f"⚠️ Costs are {money_usd(total_variance)} above budget ({total_variance_pct:+.2f}%).")
+    elif total_variance < 0:
+        st.success(f"✅ Costs are {money_usd(abs(total_variance))} below budget ({abs(total_variance_pct):.2f}% favorable).")
     else:
-        g = view.groupby(field, as_index=False).agg(
+        st.info("Budget and actual costs are exactly aligned for the selected period.")
+
+    st.markdown("### Variance by Management Dimension")
+    dim = st.selectbox(
+        "Analyze by",
+        ["Region", "Country", "Department", "Cost Category", "GL Account", "Cost Center", "Profit Center"],
+        key="bva_dimension",
+    )
+
+    if dim not in bva.columns:
+        st.info(f"{dim} is not present in the uploaded ERP dataset.")
+    else:
+        g = bva.groupby(dim, dropna=False, as_index=False).agg(
             Budget=("Budget USD", "sum"),
             Actual=("Actual USD", "sum"),
         )
         g["Variance"] = g["Actual"] - g["Budget"]
-        g["Variance %"] = np.where(g["Budget"] != 0, g["Variance"] / g["Budget"] * 100, 0)
+        g["Variance %"] = np.where(g["Budget"] != 0, g["Variance"] / g["Budget"] * 100, 0.0)
+        g["Status"] = np.where(g["Variance"] > 0, "Unfavorable", "Favorable")
+        g = g.sort_values("Variance", ascending=False)
 
-        fig = go.Figure()
-        fig.add_trace(go.Bar(x=g[field], y=g["Budget"], name="Budget"))
-        fig.add_trace(go.Bar(x=g[field], y=g["Actual"], name="Actual"))
-        chart_layout(fig)
-        st.plotly_chart(fig, use_container_width=True)
+        left, right = st.columns(2)
+        with left:
+            fig = go.Figure()
+            fig.add_trace(go.Bar(x=g[dim], y=g["Budget"], name="Budget"))
+            fig.add_trace(go.Bar(x=g[dim], y=g["Actual"], name="Actual"))
+            fig.update_layout(barmode="group", title=f"Budget vs Actual — {dim}")
+            chart_layout(fig, height=390)
+            st.plotly_chart(fig, use_container_width=True)
+        with right:
+            var_plot = g.sort_values("Variance", ascending=True).tail(12)
+            fig2 = go.Figure()
+            fig2.add_trace(go.Bar(x=var_plot["Variance"], y=var_plot[dim], orientation="h", name="Variance"))
+            fig2.update_layout(title=f"Largest Variance Drivers — {dim}", xaxis_title="Variance")
+            chart_layout(fig2, height=390)
+            st.plotly_chart(fig2, use_container_width=True)
 
         display = g.copy()
         for c in ["Budget", "Actual", "Variance"]:
             display[c] = display[c].map(money_usd)
-        display["Variance %"] = g["Variance %"].map(pct)
+        display["Variance %"] = g["Variance %"].map(lambda x: f"{x:+.2f}%")
         st.dataframe(display, use_container_width=True, hide_index=True)
+
+    st.markdown("### Monthly Variance Trend")
+    monthly = bva.assign(Month=bva["Date"].dt.to_period("M").dt.to_timestamp()).groupby("Month", as_index=False).agg(
+        Budget=("Budget USD", "sum"),
+        Actual=("Actual USD", "sum"),
+    )
+    monthly["Variance"] = monthly["Actual"] - monthly["Budget"]
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(x=monthly["Month"], y=monthly["Variance"], name="Variance"))
+    fig.add_hline(y=0, line_dash="dash")
+    fig.update_layout(title="Monthly Cost Variance", xaxis_title="Month", yaxis_title="Actual − Budget")
+    chart_layout(fig, height=360)
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown("### Root-Cause Drill-down")
+    st.caption("Follow the unfavorable variance from Region → Department → Cost Category → GL → Transaction.")
+
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        r_opts = ["All"] + sorted(bva["Region"].dropna().astype(str).unique().tolist()) if "Region" in bva.columns else ["All"]
+        selected_region = st.selectbox("Region", r_opts, key="bva_region")
+    drill = bva.copy()
+    if selected_region != "All" and "Region" in drill.columns:
+        drill = drill[drill["Region"].astype(str) == selected_region]
+
+    with c2:
+        d_opts = ["All"] + sorted(drill["Department"].dropna().astype(str).unique().tolist()) if "Department" in drill.columns else ["All"]
+        selected_dept = st.selectbox("Department", d_opts, key="bva_department")
+    if selected_dept != "All" and "Department" in drill.columns:
+        drill = drill[drill["Department"].astype(str) == selected_dept]
+
+    with c3:
+        cc_opts = ["All"] + sorted(drill["Cost Category"].dropna().astype(str).unique().tolist()) if "Cost Category" in drill.columns else ["All"]
+        selected_cc = st.selectbox("Cost Category", cc_opts, key="bva_cost_category")
+    if selected_cc != "All" and "Cost Category" in drill.columns:
+        drill = drill[drill["Cost Category"].astype(str) == selected_cc]
+
+    with c4:
+        gl_opts = ["All"] + sorted(drill["GL Account"].dropna().astype(str).unique().tolist()) if "GL Account" in drill.columns else ["All"]
+        selected_gl = st.selectbox("GL Account", gl_opts, key="bva_gl")
+    if selected_gl != "All" and "GL Account" in drill.columns:
+        drill = drill[drill["GL Account"].astype(str) == selected_gl]
+
+    drill_budget = float(pd.to_numeric(drill["Budget USD"], errors="coerce").fillna(0).sum())
+    drill_actual = float(pd.to_numeric(drill["Actual USD"], errors="coerce").fillna(0).sum())
+    drill_var = drill_actual - drill_budget
+    dc1, dc2, dc3 = st.columns(3)
+    with dc1:
+        st.metric("Selected Budget", money_usd(drill_budget))
+    with dc2:
+        st.metric("Selected Actual", money_usd(drill_actual))
+    with dc3:
+        st.metric("Selected Variance", money_usd(drill_var), delta="Unfavorable" if drill_var > 0 else "Favorable")
+
+    if not drill.empty:
+        tx = drill.copy()
+        tx["Variance"] = pd.to_numeric(tx["Actual USD"], errors="coerce").fillna(0) - pd.to_numeric(tx["Budget USD"], errors="coerce").fillna(0)
+        tx = tx.sort_values("Variance", ascending=False)
+        cols = [c for c in ["Transaction ID", "Date", "Region", "Department", "Cost Category", "GL Account", "Cost Center", "Budget USD", "Actual USD", "Variance"] if c in tx.columns]
+        tx_display = tx[cols].head(30).copy()
+        for c in ["Budget USD", "Actual USD", "Variance"]:
+            if c in tx_display.columns:
+                tx_display[c] = tx_display[c].map(money_usd)
+        st.dataframe(tx_display, use_container_width=True, hide_index=True)
+
+        if drill_var > 0:
+            issue = "Budget variance" + (f" — {selected_region}" if selected_region != "All" else "")
+            if selected_dept != "All":
+                issue += f" / {selected_dept}"
+            if selected_cc != "All":
+                issue += f" / {selected_cc}"
+            if selected_gl != "All":
+                issue += f" / {selected_gl}"
+            if st.button("🎯 Create AI CFO Management Action", key="bva_create_action"):
+                created = create_cfo_action(
+                    "High" if drill_var > max(total_budget * 0.02, 1000000) else "Medium",
+                    "Budget Control",
+                    issue,
+                    money_usd(drill_var) + " unfavorable",
+                    "Investigate the selected variance, validate the underlying transactions, and define a corrective cost-control action.",
+                    "Finance Controller",
+                )
+                if created:
+                    st.success("Management action created in AI CFO Action Center.")
+                else:
+                    st.info("An open management action already exists for this issue.")
 
 
 # ============================================================
