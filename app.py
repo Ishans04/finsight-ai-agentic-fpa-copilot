@@ -1174,39 +1174,109 @@ elif page == "Financial Performance":
 # ============================================================
 elif page == "Cash Flow Center":
     st.subheader("💧 Cash Flow Center")
-    st.caption("Liquidity command center. Cash-flow fields are modeled when the ERP source does not contain treasury transactions.")
+    st.caption("CFO liquidity command center using the V3 ERP cash layer. Cash metrics are monthly management values and are not double-counted across transaction rows.")
 
     cash = view.copy()
     cash["Month"] = pd.to_datetime(cash["Date"]).dt.to_period("M").dt.to_timestamp()
 
-    # Model a transparent cash layer from revenue/cost/payment status.
-    status = cash["Payment Status"].astype(str).str.lower() if "Payment Status" in cash.columns else pd.Series("On Time", index=cash.index)
-    delay_factor = np.where(status.str.contains("30"), 0.72, np.where(status.str.contains("15"), 0.82, np.where(status.str.contains("7"), 0.92, 1.0)))
+    # V3 stores monthly cash management metrics on transaction rows. Use the
+    # first record per month for those fields instead of summing repeated values.
+    cash_cols = [c for c in ["Cash Inflow", "Cash Outflow", "Net Cash Flow", "Opening Cash", "Closing Cash"] if c in cash.columns]
+    if not cash_cols:
+        st.warning("Cash Flow Center requires cash-flow fields in the uploaded ERP dataset. The current dataset does not contain them.")
+    else:
+        monthly_cash = cash.sort_values(["Month", "Date"]).groupby("Month", as_index=False).agg(
+            **{c: (c, "first") for c in cash_cols}
+        )
 
-    cash["Modeled Inflow"] = cash["Revenue USD"] * delay_factor
-    cash["Modeled Outflow"] = cash["Actual USD"]
+        # Defensive fallback for datasets that have inflow/outflow but no net cash.
+        if "Net Cash Flow" not in monthly_cash.columns and {"Cash Inflow", "Cash Outflow"}.issubset(monthly_cash.columns):
+            monthly_cash["Net Cash Flow"] = monthly_cash["Cash Inflow"] - monthly_cash["Cash Outflow"]
 
-    monthly_cash = cash.groupby("Month", as_index=False).agg(
-        Inflow=("Modeled Inflow", "sum"),
-        Outflow=("Modeled Outflow", "sum"),
-    )
-    monthly_cash["Net Cash Flow"] = monthly_cash["Inflow"] - monthly_cash["Outflow"]
-    monthly_cash["Closing Cash"] = monthly_cash["Net Cash Flow"].cumsum()
+        # Derive closing cash if it is not supplied.
+        if "Closing Cash" not in monthly_cash.columns:
+            opening = float(monthly_cash["Opening Cash"].iloc[0]) if "Opening Cash" in monthly_cash.columns else 0.0
+            monthly_cash["Closing Cash"] = opening + monthly_cash["Net Cash Flow"].cumsum()
 
-    a, b, c, d = st.columns(4)
-    a.metric("Modeled Inflow", money_usd(monthly_cash["Inflow"].sum()))
-    b.metric("Modeled Outflow", money_usd(monthly_cash["Outflow"].sum()))
-    c.metric("Net Cash Flow", money_usd(monthly_cash["Net Cash Flow"].sum()))
-    d.metric("Closing Cash", money_usd(monthly_cash["Closing Cash"].iloc[-1]))
+        latest = monthly_cash.iloc[-1]
+        total_inflow = float(monthly_cash["Cash Inflow"].sum()) if "Cash Inflow" in monthly_cash.columns else 0.0
+        total_outflow = float(monthly_cash["Cash Outflow"].sum()) if "Cash Outflow" in monthly_cash.columns else 0.0
+        total_net = float(monthly_cash["Net Cash Flow"].sum()) if "Net Cash Flow" in monthly_cash.columns else total_inflow - total_outflow
+        closing_cash = float(latest["Closing Cash"])
+        avg_monthly_outflow = float(monthly_cash["Cash Outflow"].tail(3).mean()) if "Cash Outflow" in monthly_cash.columns else 0.0
+        runway = closing_cash / avg_monthly_outflow if avg_monthly_outflow > 0 else np.nan
+        liquidity_status = "Healthy" if closing_cash > avg_monthly_outflow * 3 else ("Watch" if closing_cash > avg_monthly_outflow * 1.5 else "Critical")
 
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=monthly_cash["Month"], y=monthly_cash["Inflow"], mode="lines+markers", name="Inflow"))
-    fig.add_trace(go.Scatter(x=monthly_cash["Month"], y=monthly_cash["Outflow"], mode="lines+markers", name="Outflow"))
-    fig.add_trace(go.Scatter(x=monthly_cash["Month"], y=monthly_cash["Closing Cash"], mode="lines", name="Closing Cash"))
-    chart_layout(fig)
-    st.plotly_chart(fig, use_container_width=True)
+        # CFO KPI cards
+        a, b, c, d, e = st.columns(5)
+        a.metric("Cash Balance", money_usd(closing_cash))
+        b.metric("Cash Inflow", money_usd(total_inflow))
+        c.metric("Cash Outflow", money_usd(total_outflow))
+        d.metric("Net Cash Flow", money_usd(total_net))
+        e.metric("Liquidity Status", liquidity_status)
 
-    st.warning("Cash Flow Center is a modeled prototype unless the uploaded ERP dataset contains actual receivables, payables and cash transactions.")
+        st.markdown("### Liquidity Snapshot")
+        x1, x2, x3 = st.columns(3)
+        x1.metric("Latest Month Net Cash", money_usd(float(latest.get("Net Cash Flow", 0))))
+        x2.metric("3-Month Average Outflow", money_usd(avg_monthly_outflow))
+        x3.metric("Cash Runway", f"{runway:.1f} months" if np.isfinite(runway) else "N/A")
+
+        # Monthly liquidity trend — one point per month, never double-counted.
+        fig = go.Figure()
+        if "Cash Inflow" in monthly_cash.columns:
+            fig.add_trace(go.Scatter(x=monthly_cash["Month"], y=monthly_cash["Cash Inflow"], mode="lines+markers", name="Cash Inflow"))
+        if "Cash Outflow" in monthly_cash.columns:
+            fig.add_trace(go.Scatter(x=monthly_cash["Month"], y=monthly_cash["Cash Outflow"], mode="lines+markers", name="Cash Outflow"))
+        fig.add_trace(go.Scatter(x=monthly_cash["Month"], y=monthly_cash["Closing Cash"], mode="lines", name="Closing Cash", yaxis="y2"))
+        fig.update_layout(
+            title="Monthly Cash Inflow, Outflow & Closing Cash",
+            yaxis=dict(title="Monthly Flow (USD)"),
+            yaxis2=dict(title="Closing Cash (USD)", overlaying="y", side="right"),
+            legend=dict(orientation="h", y=1.08),
+        )
+        chart_layout(fig)
+        st.plotly_chart(fig, use_container_width=True)
+
+        st.markdown("### Cash Flow Overview")
+        overview = monthly_cash[[c for c in ["Month", "Cash Inflow", "Cash Outflow", "Net Cash Flow", "Opening Cash", "Closing Cash"] if c in monthly_cash.columns]].copy()
+        for c in overview.columns:
+            if c != "Month":
+                overview[c] = overview[c].map(money_usd)
+        st.dataframe(overview.sort_values("Month", ascending=False), use_container_width=True, hide_index=True)
+
+        st.markdown("### Regional Cash Generation")
+        if "Region" in cash.columns:
+            # Revenue and actual cost are transaction-level and therefore safe to aggregate.
+            regional_cash = cash.groupby("Region", as_index=False).agg(
+                Revenue=("Revenue USD", "sum"),
+                Actual_Cost=("Actual USD", "sum"),
+                Transactions=("Transaction ID", "count"),
+            )
+            regional_cash["Operating Cash Proxy"] = regional_cash["Revenue"] - regional_cash["Actual_Cost"]
+            regional_cash["Cash Conversion %"] = np.where(regional_cash["Revenue"] != 0, regional_cash["Operating Cash Proxy"] / regional_cash["Revenue"] * 100, 0)
+            regional_display = regional_cash.copy()
+            for c in ["Revenue", "Actual_Cost", "Operating Cash Proxy"]:
+                regional_display[c] = regional_display[c].map(money_usd)
+            regional_display["Cash Conversion %"] = regional_display["Cash Conversion %"].map(pct)
+            st.dataframe(regional_display.sort_values("Operating Cash Proxy", ascending=False), use_container_width=True, hide_index=True)
+
+        st.markdown("### CFO Liquidity Signals")
+        signals = []
+        if total_net < 0:
+            signals.append("🔴 Net cash flow is negative across the selected period; investigate cash outflow drivers.")
+        else:
+            signals.append("🟢 Net cash generation is positive across the selected period.")
+        if np.isfinite(runway) and runway < 3:
+            signals.append("🔴 Cash runway is below three months based on the recent average outflow.")
+        elif np.isfinite(runway):
+            signals.append(f"🟢 Cash runway is approximately {runway:.1f} months based on the recent average outflow.")
+        if "Payment Status" in cash.columns:
+            delayed = cash["Payment Status"].astype(str).str.lower().str.contains("7|15|30", regex=True).mean() * 100
+            signals.append(f"ℹ️ {delayed:.1f}% of transaction rows carry a delayed payment status and should be monitored for working-capital pressure.")
+        for s in signals:
+            st.write(s)
+
+        st.info("Cash Flow Center uses the V3 ERP cash layer where available. It is a synthetic/demo treasury model, not a live bank or treasury integration.")
 
 
 # ============================================================
