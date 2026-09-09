@@ -678,7 +678,7 @@ if df.empty:
     html_block("""
     <div class="hero">
       <div class="hero-title">FinSight AI — CFO Command Center</div>
-      <div class="hero-subtitle">Agentic FP&A • ERP Analytics • Forecasting • Risk • Cash & Liquidity • Management Actions</div>
+      <div class="hero-subtitle">Agentic FP&A • ERP Analytics • Forecasting • Risk • Cash & Liquidity • Ratios • Management Actions</div>
       <span class="pill">ERP Intelligence</span>
       <span class="pill">AI CFO Prototype</span>
       <span class="pill">USD Consolidation</span>
@@ -884,6 +884,258 @@ def chart_layout(fig, height=370):
 # ============================================================
 # EXECUTIVE DASHBOARD — CFO-GRADE V7
 # ============================================================
+
+# ============================================================
+# V22 — RATIO ANALYSIS
+# ============================================================
+def _v22_num(v, default=0.0):
+    try:
+        x = pd.to_numeric(v, errors="coerce")
+        return default if pd.isna(x) else float(x)
+    except Exception:
+        return default
+
+def _v22_col(df, names):
+    lookup = {str(c).strip().lower(): c for c in df.columns}
+    for n in names:
+        if str(n).strip().lower() in lookup:
+            return lookup[str(n).strip().lower()]
+    return None
+
+def _v22_latest(df, col):
+    if not col:
+        return 0.0
+    s = pd.to_numeric(df[col], errors="coerce").dropna()
+    return float(s.iloc[-1]) if len(s) else 0.0
+
+def _v22_sum(df, names):
+    c = _v22_col(df, names)
+    return _v22_num(df[c].sum()) if c else 0.0
+
+def _v22_ratio_pct(a, b):
+    return (a / b * 100.0) if b else 0.0
+
+def _v22_ratio_analysis(view):
+    st.header("📐 Ratio Analysis")
+    st.caption(
+        "CFO financial health, liquidity, leverage and working-capital analytics. "
+        "Market and technical analytics are separated because they require price and benchmark data."
+    )
+
+    revenue = _v22_sum(view, ["Revenue USD", "Revenue"])
+    actual = _v22_sum(view, ["Actual USD", "Actual"])
+    gp = _v22_latest(view, _v22_col(view, ["Gross Profit"]))
+    ebitda = _v22_latest(view, _v22_col(view, ["EBITDA"]))
+    pat = _v22_latest(view, _v22_col(view, ["PAT"]))
+    ebit = _v22_latest(view, _v22_col(view, ["EBIT"]))
+    interest = _v22_latest(view, _v22_col(view, ["Interest / Finance Cost", "Interest"]))
+    assets = _v22_latest(view, _v22_col(view, ["Total Assets", "Assets"]))
+    equity = _v22_latest(view, _v22_col(view, ["Total Equity", "Equity"]))
+    debt = _v22_latest(view, _v22_col(view, ["Total Debt", "Debt"]))
+    current_assets = _v22_latest(view, _v22_col(view, ["Current Assets"]))
+    current_liabilities = _v22_latest(view, _v22_col(view, ["Current Liabilities"]))
+    inventory = _v22_latest(view, _v22_col(view, ["Inventory"]))
+    cash = _v22_latest(view, _v22_col(view, ["Closing Cash", "Cash Balance"]))
+    receivables = _v22_latest(view, _v22_col(view, ["Receivables", "Accounts Receivable"]))
+    payables = _v22_latest(view, _v22_col(view, ["Payables", "Accounts Payable"]))
+
+    # V3 provides management P&L but not a full balance sheet. Keep unsupported ratios explicit.
+    gross_margin = _v22_ratio_pct(gp, revenue)
+    ebitda_margin = _v22_ratio_pct(ebitda, revenue)
+    ebit_margin = _v22_ratio_pct(ebit, revenue)
+    pat_margin = _v22_ratio_pct(pat, revenue)
+    opex_pct = _v22_ratio_pct(max(0.0, actual - (revenue - gp)), revenue) if revenue and gp else 0.0
+    cogs_pct = _v22_ratio_pct(max(0.0, revenue - gp), revenue) if revenue and gp else 0.0
+
+    current_ratio = current_assets / current_liabilities if current_liabilities else None
+    quick_ratio = (current_assets - inventory) / current_liabilities if current_liabilities else None
+    debt_equity = debt / equity if equity else None
+    interest_coverage = ebit / interest if interest else None
+    roa = pat / assets * 100 if assets else None
+    roe = pat / equity * 100 if equity else None
+
+    # Working-capital days need annualized revenue/cost and balance-sheet inputs.
+    dso = receivables / revenue * 365 if receivables and revenue else None
+    dpo = payables / actual * 365 if payables and actual else None
+    ccc = None if dso is None or dpo is None else dso - dpo
+
+    tabs = st.tabs([
+        "Financial Health",
+        "Liquidity & Leverage",
+        "Working Capital",
+        "Market Analytics",
+        "Technical Analytics",
+    ])
+
+    with tabs[0]:
+        st.subheader("Financial Health")
+        cols = st.columns(4)
+        metrics = [
+            ("Gross Margin", f"{gross_margin:.1f}%"),
+            ("EBITDA Margin", f"{ebitda_margin:.1f}%"),
+            ("EBIT Margin", f"{ebit_margin:.1f}%"),
+            ("PAT Margin", f"{pat_margin:.1f}%"),
+            ("ROA", "N/A" if roa is None else f"{roa:.1f}%"),
+            ("ROE", "N/A" if roe is None else f"{roe:.1f}%"),
+            ("COGS / Revenue", f"{cogs_pct:.1f}%"),
+            ("Opex / Revenue", f"{opex_pct:.1f}%"),
+        ]
+        for i, (label, value) in enumerate(metrics):
+            cols[i % 4].metric(label, value)
+
+        st.info(
+            "ROA, ROE and other balance-sheet ratios show N/A when the uploaded ERP dataset "
+            "does not contain the required balance-sheet fields. No values are fabricated."
+        )
+
+    with tabs[1]:
+        st.subheader("Liquidity & Leverage")
+        rows = [
+            ["Current Ratio", "N/A" if current_ratio is None else f"{current_ratio:.2f}x"],
+            ["Quick Ratio", "N/A" if quick_ratio is None else f"{quick_ratio:.2f}x"],
+            ["Debt / Equity", "N/A" if debt_equity is None else f"{debt_equity:.2f}x"],
+            ["Interest Coverage", "N/A" if interest_coverage is None else f"{interest_coverage:.2f}x"],
+            ["Cash Balance", f"${cash/1_000_000:.2f}M" if cash else "N/A"],
+        ]
+        st.dataframe(pd.DataFrame(rows, columns=["Ratio", "Value"]), use_container_width=True, hide_index=True)
+        st.caption("Balance-sheet liquidity and leverage ratios require current-assets, liabilities, debt and equity fields.")
+
+    with tabs[2]:
+        st.subheader("Working Capital")
+        wc = [
+            ["DSO — Days Sales Outstanding", "N/A" if dso is None else f"{dso:.1f} days"],
+            ["DPO — Days Payable Outstanding", "N/A" if dpo is None else f"{dpo:.1f} days"],
+            ["Cash Conversion Cycle", "N/A" if ccc is None else f"{ccc:.1f} days"],
+            ["Receivables", "N/A" if not receivables else f"${receivables/1_000_000:.2f}M"],
+            ["Payables", "N/A" if not payables else f"${payables/1_000_000:.2f}M"],
+        ]
+        st.dataframe(pd.DataFrame(wc, columns=["Metric", "Value"]), use_container_width=True, hide_index=True)
+        st.caption("DSO/DPO/CCC are calculated only when receivables/payables fields are present.")
+
+    with tabs[3]:
+        st.subheader("Market Analytics")
+        st.warning("Market analytics require a separate market-price dataset. ERP financial transactions are not used as a substitute.")
+        uploaded_market = st.file_uploader(
+            "Upload Market Price CSV",
+            type=["csv"],
+            key="v22_market_csv",
+            help="Expected fields: Date, Asset/Price, and optionally Benchmark.",
+        )
+        if uploaded_market is not None:
+            market = pd.read_csv(uploaded_market)
+            date_col = _v22_col(market, ["Date", "date"])
+            price_col = _v22_col(market, ["Price", "Close", "Adj Close", "Asset Price"])
+            benchmark_col = _v22_col(market, ["Benchmark", "Benchmark Price", "Index", "Benchmark Close"])
+            if not date_col or not price_col:
+                st.error("Market CSV needs Date and Price/Close columns.")
+            else:
+                market[date_col] = pd.to_datetime(market[date_col], errors="coerce")
+                market[price_col] = pd.to_numeric(market[price_col], errors="coerce")
+                market = market.dropna(subset=[date_col, price_col]).sort_values(date_col).copy()
+                market["Asset Return"] = market[price_col].pct_change()
+                if benchmark_col:
+                    market[benchmark_col] = pd.to_numeric(market[benchmark_col], errors="coerce")
+                    market["Benchmark Return"] = market[benchmark_col].pct_change()
+                    aligned = market[["Asset Return", "Benchmark Return"]].dropna()
+                    if len(aligned) >= 2:
+                        cov = aligned["Asset Return"].cov(aligned["Benchmark Return"])
+                        var_b = aligned["Benchmark Return"].var()
+                        beta = cov / var_b if var_b else np.nan
+                        corr = aligned["Asset Return"].corr(aligned["Benchmark Return"])
+                        r2 = corr ** 2 if pd.notna(corr) else np.nan
+                        rf = 0.0
+                        active = aligned["Asset Return"] - aligned["Benchmark Return"]
+                        alpha_period = aligned["Asset Return"].mean() - beta * aligned["Benchmark Return"].mean() - rf
+                        vol = aligned["Asset Return"].std() * np.sqrt(252)
+                        sharpe = (aligned["Asset Return"].mean() / aligned["Asset Return"].std()) * np.sqrt(252) if aligned["Asset Return"].std() else np.nan
+                        downside = aligned.loc[aligned["Asset Return"] < 0, "Asset Return"].std()
+                        sortino = (aligned["Asset Return"].mean() / downside) * np.sqrt(252) if downside and pd.notna(downside) else np.nan
+                        tracking = active.std()
+                        info_ratio = active.mean() / tracking * np.sqrt(252) if tracking else np.nan
+                        wealth = (1 + aligned["Asset Return"]).cumprod()
+                        max_dd = (wealth / wealth.cummax() - 1).min()
+                        st.dataframe(pd.DataFrame([
+                            ["Alpha (period)", f"{alpha_period:.4%}"],
+                            ["Beta", f"{beta:.3f}"],
+                            ["R / Correlation", f"{corr:.3f}"],
+                            ["R²", f"{r2:.3f}"],
+                            ["Annualized Volatility", f"{vol:.1%}"],
+                            ["Sharpe", "N/A" if pd.isna(sharpe) else f"{sharpe:.2f}"],
+                            ["Sortino", "N/A" if pd.isna(sortino) else f"{sortino:.2f}"],
+                            ["Information Ratio", "N/A" if pd.isna(info_ratio) else f"{info_ratio:.2f}"],
+                            ["Maximum Drawdown", f"{max_dd:.1%}"],
+                        ], columns=["Market Metric", "Value"]), use_container_width=True, hide_index=True)
+                    else:
+                        st.info("Need at least two aligned return observations for benchmark analytics.")
+                else:
+                    st.info("Upload a Benchmark/Index price column to calculate Alpha, Beta, R and R².")
+        else:
+            st.caption("Upload a market CSV above to activate Alpha, Beta, correlation, risk-adjusted returns and drawdown analytics.")
+
+    with tabs[4]:
+        st.subheader("Technical Analytics")
+        st.warning("Technical indicators require chronological market-price data and are intentionally separated from ERP accounting data.")
+        # Reuse the uploaded market file from the previous tab when available in Streamlit session.
+        # The uploader is scoped to this run; users can upload it again here if needed.
+        tech_file = st.file_uploader(
+            "Upload Price CSV for Technical Analysis",
+            type=["csv"],
+            key="v22_tech_csv",
+            help="Expected fields: Date and Price/Close.",
+        )
+        if tech_file is not None:
+            tech = pd.read_csv(tech_file)
+            dcol = _v22_col(tech, ["Date", "date"])
+            pcol = _v22_col(tech, ["Price", "Close", "Adj Close"])
+            if not dcol or not pcol:
+                st.error("Technical CSV needs Date and Price/Close columns.")
+            else:
+                tech[dcol] = pd.to_datetime(tech[dcol], errors="coerce")
+                tech[pcol] = pd.to_numeric(tech[pcol], errors="coerce")
+                tech = tech.dropna(subset=[dcol, pcol]).sort_values(dcol).copy()
+                price = tech[pcol]
+                tech["SMA 20"] = price.rolling(20).mean()
+                tech["SMA 50"] = price.rolling(50).mean()
+                delta = price.diff()
+                gain = delta.clip(lower=0).rolling(14).mean()
+                loss = (-delta.clip(upper=0)).rolling(14).mean()
+                rs = gain / loss.replace(0, np.nan)
+                tech["RSI 14"] = 100 - (100 / (1 + rs))
+                ema12 = price.ewm(span=12, adjust=False).mean()
+                ema26 = price.ewm(span=26, adjust=False).mean()
+                tech["MACD"] = ema12 - ema26
+                tech["Signal"] = tech["MACD"].ewm(span=9, adjust=False).mean()
+                mid = price.rolling(20).mean()
+                std = price.rolling(20).std()
+                tech["Upper BB"] = mid + 2 * std
+                tech["Lower BB"] = mid - 2 * std
+
+                high = price.max()
+                low = price.min()
+                diff = high - low
+                fib = pd.DataFrame([
+                    ["0.0%", high],
+                    ["23.6%", high - 0.236 * diff],
+                    ["38.2%", high - 0.382 * diff],
+                    ["50.0%", high - 0.500 * diff],
+                    ["61.8%", high - 0.618 * diff],
+                    ["78.6%", high - 0.786 * diff],
+                    ["100.0%", low],
+                ], columns=["Fibonacci Level", "Price"])
+
+                latest = tech.iloc[-1]
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Latest Price", f"{_v22_num(latest[pcol]):,.2f}")
+                c2.metric("RSI 14", "N/A" if pd.isna(latest["RSI 14"]) else f"{latest['RSI 14']:.1f}")
+                c3.metric("MACD", "N/A" if pd.isna(latest["MACD"]) else f"{latest['MACD']:.2f}")
+
+                chart_cols = [pcol, "SMA 20", "SMA 50", "Upper BB", "Lower BB"]
+                st.line_chart(tech.set_index(dcol)[chart_cols], use_container_width=True)
+                st.markdown("### Fibonacci Retracement")
+                st.dataframe(fib, use_container_width=True, hide_index=True)
+                st.caption("Fibonacci levels use the observed high/low in the uploaded price series; they are analytical reference levels, not forecasts.")
+
+
 if page == "Executive Dashboard":
     st.subheader("Executive Dashboard")
     st.caption("CFO view of growth, profitability, liquidity, budget performance and enterprise risk.")
@@ -1143,6 +1395,9 @@ if page == "Executive Dashboard":
 # ============================================================
 # AI CFO — MULTI-STEP INVESTIGATION V18
 # ============================================================
+elif page == "Ratio Analysis":
+    _v22_ratio_analysis(view)
+
 elif page == "AI CFO":
     st.subheader("🤖 AI CFO")
     st.caption("Multi-step financial investigation engine: detect → quantify → trace the driver → explain → recommend → route to action.")
