@@ -1272,25 +1272,201 @@ elif page == "Forecasting & Planning":
 
 
 # ============================================================
-# WHAT-IF
+# WHAT-IF SCENARIOS — FP&A DECISION ENGINE V10
 # ============================================================
 elif page == "What-if Scenarios":
     st.subheader("What-if Scenario Planner")
+    st.caption("Stress-test management assumptions and see the modeled impact on Revenue, Gross Profit, EBITDA, PAT and Cash.")
 
-    cost_change = st.slider("Change in actual cost", -30, 30, 0, 1)
-    revenue_change = st.slider("Change in revenue", -20, 30, 0, 1)
+    # Recalculate the baseline from the current filtered ERP view so the scenario engine
+    # respects the same Region / Country / Department / Date filters as the rest of the app.
+    base = view.copy()
+    base_revenue = float(base["Revenue USD"].sum())
+    base_actual = float(base["Actual USD"].sum())
 
-    scenario_revenue = revenue * (1 + revenue_change / 100)
-    scenario_cost = actual * (1 + cost_change / 100)
-    scenario_profit = scenario_revenue - scenario_cost
-    scenario_margin = scenario_profit / scenario_revenue * 100 if scenario_revenue else 0
+    if "Cost Type" in base.columns:
+        base_cogs = float(base.loc[base["Cost Type"].eq("COGS"), "Actual USD"].sum())
+        base_opex = float(base.loc[base["Cost Type"].eq("Opex"), "Actual USD"].sum())
+    else:
+        # Fallback for older datasets: treat 38% of revenue as COGS and the remainder
+        # of actual cost as Opex. This is explicitly a modeling fallback.
+        base_cogs = base_revenue * 0.38
+        base_opex = max(base_actual - base_cogs, 0.0)
 
-    a, b, c = st.columns(3)
-    a.metric("Scenario Revenue", money_usd(scenario_revenue), f"{revenue_change:+.0f}%")
-    b.metric("Scenario Cost", money_usd(scenario_cost), f"{cost_change:+.0f}%")
-    c.metric("Scenario Margin", pct(scenario_margin), f"{scenario_margin - margin:+.1f} pts")
+    # Prefer the management-layer values where available; otherwise derive them.
+    base_monthly = base.copy()
+    base_monthly["Month"] = pd.to_datetime(base_monthly["Date"], errors="coerce").dt.to_period("M").dt.to_timestamp()
+    if "Gross Profit" in base_monthly.columns:
+        base_gross_profit = float(base_monthly.groupby("Month")["Gross Profit"].first().sum())
+    else:
+        base_gross_profit = base_revenue - base_cogs
 
-    st.info("Use this planner to test cost-control and growth assumptions before management review.")
+    if "EBITDA" in base_monthly.columns:
+        base_ebitda = float(base_monthly.groupby("Month")["EBITDA"].first().sum())
+    else:
+        base_ebitda = base_gross_profit - base_opex
+
+    if "PAT" in base_monthly.columns:
+        base_pat = float(base_monthly.groupby("Month")["PAT"].first().sum())
+    else:
+        base_pat = base_ebitda - base_revenue * 0.04
+
+    if "Closing Cash" in base_monthly.columns:
+        cash_series = base_monthly.groupby("Month")["Closing Cash"].first().sort_index()
+        base_cash = float(cash_series.iloc[-1]) if len(cash_series) else 0.0
+    else:
+        base_cash = float((base_revenue - base_actual))
+
+    # Identify the cost categories that management can directly influence.
+    category_col = "Cost Category" if "Cost Category" in base.columns else "Account / Cost Category"
+    category_values = set(base[category_col].astype(str).str.strip()) if category_col in base.columns else set()
+
+    st.markdown("### Management Assumptions")
+    r1, r2, r3, r4 = st.columns(4)
+    with r1:
+        revenue_change = st.slider("Revenue change", -20, 30, 0, 1, format="%d%%", key="whatif_revenue_v10")
+    with r2:
+        payroll_change = st.slider("Payroll change", -20, 30, 0, 1, format="%d%%", key="whatif_payroll_v10")
+    with r3:
+        cloud_change = st.slider("Cloud cost change", -30, 30, 0, 1, format="%d%%", key="whatif_cloud_v10")
+    with r4:
+        opex_change = st.slider("Other Opex change", -30, 30, 0, 1, format="%d%%", key="whatif_opex_v10")
+
+    # Scenario mechanics: revenue changes flow through COGS at the baseline COGS ratio;
+    # controllable costs move independently. PAT keeps the baseline non-operating/tax
+    # relationship by applying the historical PAT-to-EBITDA spread.
+    revenue_factor = 1 + revenue_change / 100
+    scenario_revenue = base_revenue * revenue_factor
+
+    cogs_ratio = base_cogs / base_revenue if base_revenue else 0.38
+    revenue_driven_cogs = scenario_revenue * cogs_ratio
+
+    payroll_base = float(base.loc[base[category_col].astype(str).str.strip().eq("Payroll"), "Actual USD"].sum()) if category_col in base.columns else 0.0
+    cloud_base = float(base.loc[base[category_col].astype(str).str.strip().eq("Cloud Infrastructure"), "Actual USD"].sum()) if category_col in base.columns else 0.0
+    other_opex_base = max(base_opex - payroll_base - cloud_base, 0.0)
+
+    scenario_payroll = payroll_base * (1 + payroll_change / 100)
+    scenario_cloud = cloud_base * (1 + cloud_change / 100)
+    scenario_other_opex = other_opex_base * (1 + opex_change / 100)
+
+    # If a category is absent, the related assumption has no financial impact.
+    if "Payroll" not in category_values:
+        scenario_payroll = payroll_base
+    if "Cloud Infrastructure" not in category_values:
+        scenario_cloud = cloud_base
+
+    scenario_opex = scenario_payroll + scenario_cloud + scenario_other_opex
+    scenario_gross_profit = scenario_revenue - revenue_driven_cogs
+    scenario_ebitda = scenario_gross_profit - scenario_opex
+
+    # Preserve the baseline EBITDA -> PAT bridge rather than inventing a new tax rate.
+    baseline_non_pat = base_ebitda - base_pat
+    scenario_pat = scenario_ebitda - baseline_non_pat
+
+    # Modeled cash impact follows the incremental EBITDA impact. This is a planning
+    # approximation, not a treasury forecast.
+    cash_impact = scenario_ebitda - base_ebitda
+    scenario_cash = base_cash + cash_impact
+
+    scenario_ebitda_margin = scenario_ebitda / scenario_revenue * 100 if scenario_revenue else 0
+    scenario_pat_margin = scenario_pat / scenario_revenue * 100 if scenario_revenue else 0
+    gross_margin_scenario = scenario_gross_profit / scenario_revenue * 100 if scenario_revenue else 0
+
+    # Executive impact cards.
+    st.markdown("### Scenario Impact")
+    k1, k2, k3, k4, k5, k6 = st.columns(6)
+    k1.metric("Scenario Revenue", money_usd(scenario_revenue), f"{revenue_change:+d}%")
+    k2.metric("Gross Profit", money_usd(scenario_gross_profit), f"{scenario_gross_profit - base_gross_profit:+,.0f}")
+    k3.metric("EBITDA", money_usd(scenario_ebitda), f"{scenario_ebitda - base_ebitda:+,.0f}")
+    k4.metric("EBITDA Margin", pct(scenario_ebitda_margin), f"{scenario_ebitda_margin - (base_ebitda / base_revenue * 100 if base_revenue else 0):+.1f} pts")
+    k5.metric("PAT", money_usd(scenario_pat), f"{scenario_pat - base_pat:+,.0f}")
+    k6.metric("Cash Impact", money_usd(cash_impact), f"{cash_impact:+,.0f}")
+
+    # Waterfall-style bridge using the baseline and management levers.
+    st.markdown("### EBITDA Bridge")
+    bridge = pd.DataFrame({
+        "Driver": [
+            "Baseline EBITDA",
+            "Revenue impact",
+            "Payroll impact",
+            "Cloud impact",
+            "Other Opex impact",
+            "Scenario EBITDA",
+        ],
+        "Impact": [
+            base_ebitda,
+            scenario_revenue * (1 - cogs_ratio) - base_revenue * (1 - cogs_ratio),
+            -(scenario_payroll - payroll_base),
+            -(scenario_cloud - cloud_base),
+            -(scenario_other_opex - other_opex_base),
+            scenario_ebitda,
+        ],
+    })
+    fig = go.Figure(go.Waterfall(
+        x=bridge["Driver"],
+        y=bridge["Impact"],
+        measure=["absolute", "relative", "relative", "relative", "relative", "total"],
+        text=[money_usd(v) for v in bridge["Impact"]],
+        textposition="outside",
+        connector={"line": {"color": "#46627a"}},
+    ))
+    chart_layout(fig, height=410)
+    fig.update_yaxes(tickprefix="$", tickformat="~s")
+    st.plotly_chart(fig, use_container_width=True)
+
+    # Base vs scenario comparison.
+    comparison = pd.DataFrame([
+        ["Revenue", base_revenue, scenario_revenue],
+        ["Gross Profit", base_gross_profit, scenario_gross_profit],
+        ["EBITDA", base_ebitda, scenario_ebitda],
+        ["PAT", base_pat, scenario_pat],
+        ["Cash Balance", base_cash, scenario_cash],
+        ["Gross Margin", base_gross_profit / base_revenue * 100 if base_revenue else 0, gross_margin_scenario],
+        ["EBITDA Margin", base_ebitda / base_revenue * 100 if base_revenue else 0, scenario_ebitda_margin],
+        ["PAT Margin", base_pat / base_revenue * 100 if base_revenue else 0, scenario_pat_margin],
+    ], columns=["Metric", "Baseline", "Scenario"])
+
+    display = comparison.copy()
+    monetary_metrics = {"Revenue", "Gross Profit", "EBITDA", "PAT", "Cash Balance"}
+    for idx, metric in enumerate(display["Metric"]):
+        if metric in monetary_metrics:
+            display.loc[idx, "Baseline"] = money_usd(display.loc[idx, "Baseline"])
+            display.loc[idx, "Scenario"] = money_usd(display.loc[idx, "Scenario"])
+        else:
+            display.loc[idx, "Baseline"] = pct(display.loc[idx, "Baseline"])
+            display.loc[idx, "Scenario"] = pct(display.loc[idx, "Scenario"])
+
+    st.markdown("### Baseline vs Scenario")
+    st.dataframe(display, use_container_width=True, hide_index=True)
+
+    # Plain-English management interpretation.
+    if cash_impact > 0:
+        st.success(f"Scenario improves modeled EBITDA by {money_usd(cash_impact)} and increases modeled cash by the same amount, before working-capital effects.")
+    elif cash_impact < 0:
+        st.warning(f"Scenario reduces modeled EBITDA by {money_usd(abs(cash_impact))} and creates an equivalent modeled cash pressure before working-capital effects.")
+    else:
+        st.info("Scenario is neutral versus the current baseline.")
+
+    # Scenario-specific management guidance.
+    actions = []
+    if revenue_change < 0:
+        actions.append("Protect high-margin revenue and review downside assumptions by region and business unit.")
+    if payroll_change > 0:
+        actions.append("Review workforce plan, hiring pace, contractor mix and utilization before approving the payroll increase.")
+    if cloud_change > 0:
+        actions.append("Review cloud consumption, commitments and unused resources before accepting higher infrastructure spend.")
+    if cloud_change < 0:
+        actions.append("Validate that planned cloud savings are operationally achievable and do not impair service levels.")
+    if opex_change > 0:
+        actions.append("Challenge discretionary Opex and require business-owner justification for incremental spend.")
+    if not actions:
+        actions.append("Baseline case: use the scenario outputs as the reference point for management planning.")
+
+    st.markdown("### CFO Interpretation")
+    for action in actions:
+        st.write(f"• {action}")
+
+    st.caption("What-if results are transparent planning simulations based on the current filtered ERP dataset. Cash impact is modeled from the EBITDA delta and should not be treated as a treasury forecast.")
 
 
 # ============================================================
