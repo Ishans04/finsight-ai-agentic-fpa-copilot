@@ -9,6 +9,255 @@ import plotly.graph_objects as go
 from sklearn.ensemble import IsolationForest
 from sklearn.linear_model import LinearRegression
 
+
+# -----------------------------
+# V20 — AI CFO Executive Brief
+# -----------------------------
+def _v20_num(value, default=0.0):
+    try:
+        x = pd.to_numeric(value, errors="coerce")
+        if pd.isna(x):
+            return default
+        return float(x)
+    except Exception:
+        return default
+
+def _v20_fmt_money(x):
+    x = _v20_num(x)
+    ax = abs(x)
+    sign = "-" if x < 0 else ""
+    if ax >= 1_000_000_000:
+        return f"{sign}${ax/1_000_000_000:.2f}B"
+    if ax >= 1_000_000:
+        return f"{sign}${ax/1_000_000:.2f}M"
+    if ax >= 1_000:
+        return f"{sign}${ax/1_000:.1f}K"
+    return f"{sign}${ax:,.0f}"
+
+def _v20_find_col(df, names):
+    lower = {str(c).strip().lower(): c for c in df.columns}
+    for n in names:
+        if str(n).strip().lower() in lower:
+            return lower[str(n).strip().lower()]
+    return None
+
+def _v20_build_brief(df, actions_df=None):
+    revenue_col = _v20_find_col(df, ["Revenue USD", "Revenue"])
+    budget_col = _v20_find_col(df, ["Budget USD", "Budget"])
+    actual_col = _v20_find_col(df, ["Actual USD", "Actual"])
+    gp_col = _v20_find_col(df, ["Gross Profit", "Gross Profit USD"])
+    ebitda_col = _v20_find_col(df, ["EBITDA"])
+    pat_col = _v20_find_col(df, ["PAT"])
+    cash_col = _v20_find_col(df, ["Closing Cash", "Closing Cash USD"])
+    variance_col = _v20_find_col(df, ["Variance USD", "Variance"])
+
+    revenue = _v20_num(df[revenue_col].sum()) if revenue_col else 0
+    budget = _v20_num(df[budget_col].sum()) if budget_col else 0
+    actual = _v20_num(df[actual_col].sum()) if actual_col else 0
+    variance = _v20_num(df[variance_col].sum()) if variance_col else actual - budget
+
+    # Management metrics in V3 are monthly values repeated across transaction rows.
+    def latest_metric(col):
+        if not col:
+            return 0.0
+        s = pd.to_numeric(df[col], errors="coerce").dropna()
+        return float(s.iloc[-1]) if len(s) else 0.0
+
+    # Prefer the latest monthly management-layer value when present.
+    gross_profit = latest_metric(gp_col)
+    ebitda = latest_metric(ebitda_col)
+    pat = latest_metric(pat_col)
+    cash = latest_metric(cash_col)
+
+    if gp_col is None:
+        gross_profit = revenue - actual
+    if ebitda_col is None:
+        ebitda = gross_profit
+    if pat_col is None:
+        pat = ebitda * 0.60
+    if cash_col is None:
+        cash = max(0.0, revenue - actual)
+
+    ebitda_margin = ebitda / revenue if revenue else 0
+    pat_margin = pat / revenue if revenue else 0
+
+    # Unfavorable cost exposure.
+    unfavorable = max(0.0, variance)
+
+    # Risk/anomaly evidence.
+    anomaly_col = _v20_find_col(df, ["Anomaly Flag", "anomaly_flag"])
+    anomaly_count = int(pd.to_numeric(df[anomaly_col], errors="coerce").fillna(0).gt(0).sum()) if anomaly_col else 0
+
+    # Top variance driver.
+    group_col = _v20_find_col(df, ["Cost Category", "Account / Cost Category", "account"])
+    top_driver = "Not available"
+    top_driver_var = 0.0
+    if group_col and variance_col:
+        tmp = df.groupby(group_col, dropna=False)[variance_col].sum().sort_values(ascending=False)
+        if len(tmp):
+            top_driver = str(tmp.index[0])
+            top_driver_var = _v20_num(tmp.iloc[0])
+
+    # Regional hotspot.
+    region_col = _v20_find_col(df, ["Region", "Business Unit", "business_unit"])
+    top_region = "Not available"
+    top_region_var = 0.0
+    if region_col and variance_col:
+        tmp = df.groupby(region_col, dropna=False)[variance_col].sum().sort_values(ascending=False)
+        if len(tmp):
+            top_region = str(tmp.index[0])
+            top_region_var = _v20_num(tmp.iloc[0])
+
+    open_actions = 0
+    high_actions = 0
+    if actions_df is not None and len(actions_df):
+        status_col = _v20_find_col(actions_df, ["Status"])
+        priority_col = _v20_find_col(actions_df, ["Priority"])
+        if status_col:
+            open_actions = int(~actions_df[status_col].astype(str).str.lower().eq("resolved").sum())
+        if priority_col:
+            high_actions = int(actions_df[priority_col].astype(str).str.lower().isin(["high", "critical"]).sum())
+
+    if variance > 0:
+        budget_sentence = f"Costs are {_v20_fmt_money(variance)} above the current budget."
+    elif variance < 0:
+        budget_sentence = f"Costs are {_v20_fmt_money(abs(variance))} below the current budget."
+    else:
+        budget_sentence = "Costs are broadly in line with budget."
+
+    risk_level = "Elevated" if anomaly_count >= 25 or unfavorable >= max(1_000_000, budget * 0.01) else "Moderate"
+    if anomaly_count == 0 and unfavorable == 0:
+        risk_level = "Low"
+
+    summary = (
+        f"Revenue is {_v20_fmt_money(revenue)} with Gross Profit of {_v20_fmt_money(gross_profit)} "
+        f"and EBITDA of {_v20_fmt_money(ebitda)} ({ebitda_margin:.1%} margin). "
+        f"{budget_sentence} The largest cost-variance driver is {top_driver}, while "
+        f"{top_region} is the leading regional variance hotspot. "
+        f"Liquidity is currently {_v20_fmt_money(cash)}, with {anomaly_count} flagged anomaly transactions. "
+        f"Overall management risk is assessed as {risk_level.lower()}."
+    )
+
+    recommendations = []
+    if unfavorable > 0:
+        recommendations.append(f"Investigate {top_driver} variance and validate the highest-impact transactions.")
+    if top_region_var > 0:
+        recommendations.append(f"Review {top_region} performance and identify the operational driver behind the variance.")
+    if anomaly_count > 0:
+        recommendations.append("Prioritize anomaly transactions with material financial exposure for controller review.")
+    if open_actions > 0:
+        recommendations.append(f"Close or escalate the {open_actions} outstanding management action(s) based on financial impact.")
+    if not recommendations:
+        recommendations.append("Continue monitoring performance against budget and refresh the CFO brief at the next reporting cycle.")
+
+    return {
+        "revenue": revenue, "gross_profit": gross_profit, "ebitda": ebitda,
+        "pat": pat, "cash": cash, "ebitda_margin": ebitda_margin,
+        "pat_margin": pat_margin, "budget": budget, "actual": actual,
+        "variance": variance, "unfavorable": unfavorable,
+        "anomaly_count": anomaly_count, "top_driver": top_driver,
+        "top_driver_var": top_driver_var, "top_region": top_region,
+        "top_region_var": top_region_var, "risk_level": risk_level,
+        "open_actions": open_actions, "high_actions": high_actions,
+        "summary": summary, "recommendations": recommendations,
+    }
+
+def _v20_render_cfo_brief(df, actions_df=None):
+    st.subheader("🧠 AI CFO Executive Brief")
+    st.caption("One-click management synthesis across performance, budget, liquidity, risk, forecast signals and actions.")
+
+    brief = _v20_build_brief(df, actions_df)
+
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
+    c1.metric("Revenue", _v20_fmt_money(brief["revenue"]))
+    c2.metric("Gross Profit", _v20_fmt_money(brief["gross_profit"]))
+    c3.metric("EBITDA", _v20_fmt_money(brief["ebitda"]))
+    c4.metric("PAT", _v20_fmt_money(brief["pat"]))
+    c5.metric("Cash", _v20_fmt_money(brief["cash"]))
+    c6.metric("Risk", brief["risk_level"])
+
+    st.markdown("### Executive Summary")
+    st.info(brief["summary"])
+
+    left, right = st.columns(2)
+    with left:
+        st.markdown("### Financial Performance")
+        perf = pd.DataFrame([
+            ["Revenue", _v20_fmt_money(brief["revenue"])],
+            ["Gross Profit", _v20_fmt_money(brief["gross_profit"])],
+            ["EBITDA", _v20_fmt_money(brief["ebitda"])],
+            ["EBITDA Margin", f'{brief["ebitda_margin"]:.1%}'],
+            ["PAT", _v20_fmt_money(brief["pat"])],
+            ["PAT Margin", f'{brief["pat_margin"]:.1%}'],
+        ], columns=["Metric", "Value"])
+        st.dataframe(perf, use_container_width=True, hide_index=True)
+
+    with right:
+        st.markdown("### Budget & Risk")
+        risk_tbl = pd.DataFrame([
+            ["Budget", _v20_fmt_money(brief["budget"])],
+            ["Actual Cost", _v20_fmt_money(brief["actual"])],
+            ["Variance", _v20_fmt_money(brief["variance"])],
+            ["Unfavorable Exposure", _v20_fmt_money(brief["unfavorable"])],
+            ["Top Cost Driver", brief["top_driver"]],
+            ["Top Regional Hotspot", brief["top_region"]],
+            ["Anomaly Transactions", str(brief["anomaly_count"])],
+        ], columns=["Signal", "Value"])
+        st.dataframe(risk_tbl, use_container_width=True, hide_index=True)
+
+    st.markdown("### 💧 Cash & Liquidity")
+    st.success(f"Current closing cash: **{_v20_fmt_money(brief['cash'])}**. Use the Cash Flow Center for detailed runway and cash-generation analysis.")
+
+    st.markdown("### 🎯 Management Priorities")
+    for i, rec in enumerate(brief["recommendations"], 1):
+        st.markdown(f"**{i}.** {rec}")
+
+    st.markdown("### 📌 Action Pipeline")
+    a1, a2, a3 = st.columns(3)
+    a1.metric("Open Actions", brief["open_actions"])
+    a2.metric("High/Critical Actions", brief["high_actions"])
+    a3.metric("Risk Level", brief["risk_level"])
+
+    # Export a standalone HTML management brief.
+    html = f"""<!doctype html>
+<html><head><meta charset="utf-8"><title>FinSight AI CFO Executive Brief</title>
+<style>body{{font-family:Arial,sans-serif;max-width:1000px;margin:40px auto;padding:0 24px;color:#172033}}
+h1{{margin-bottom:4px}}h2{{margin-top:28px}}table{{border-collapse:collapse;width:100%}}
+td,th{{border:1px solid #ddd;padding:9px;text-align:left}}.summary{{padding:16px;border:1px solid #ddd;border-radius:8px}}
+</style></head><body>
+<h1>FinSight AI — CFO Executive Brief</h1>
+<p>Generated from the current ERP reporting dataset.</p>
+<h2>Executive Summary</h2><div class="summary">{brief["summary"]}</div>
+<h2>Financial Performance</h2>
+<table><tr><th>Metric</th><th>Value</th></tr>
+<tr><td>Revenue</td><td>{_v20_fmt_money(brief["revenue"])}</td></tr>
+<tr><td>Gross Profit</td><td>{_v20_fmt_money(brief["gross_profit"])}</td></tr>
+<tr><td>EBITDA</td><td>{_v20_fmt_money(brief["ebitda"])}</td></tr>
+<tr><td>EBITDA Margin</td><td>{brief["ebitda_margin"]:.1%}</td></tr>
+<tr><td>PAT</td><td>{_v20_fmt_money(brief["pat"])}</td></tr>
+<tr><td>PAT Margin</td><td>{brief["pat_margin"]:.1%}</td></tr></table>
+<h2>Budget & Risk</h2>
+<table><tr><th>Signal</th><th>Value</th></tr>
+<tr><td>Budget</td><td>{_v20_fmt_money(brief["budget"])}</td></tr>
+<tr><td>Actual Cost</td><td>{_v20_fmt_money(brief["actual"])}</td></tr>
+<tr><td>Variance</td><td>{_v20_fmt_money(brief["variance"])}</td></tr>
+<tr><td>Unfavorable Exposure</td><td>{_v20_fmt_money(brief["unfavorable"])}</td></tr>
+<tr><td>Top Cost Driver</td><td>{brief["top_driver"]}</td></tr>
+<tr><td>Top Regional Hotspot</td><td>{brief["top_region"]}</td></tr>
+<tr><td>Anomaly Transactions</td><td>{brief["anomaly_count"]}</td></tr></table>
+<h2>Management Priorities</h2><ol>{"".join(f"<li>{r}</li>" for r in brief["recommendations"])}</ol>
+<h2>Action Pipeline</h2><p>Open actions: {brief["open_actions"]} | High/Critical: {brief["high_actions"]} | Risk: {brief["risk_level"]}</p>
+</body></html>"""
+
+    st.download_button(
+        "📄 Download AI CFO Executive Brief",
+        data=html.encode("utf-8"),
+        file_name="finsight_ai_cfo_executive_brief.html",
+        mime="text/html",
+        use_container_width=True,
+    )
+
+
 st.set_page_config(
     page_title="FinSight AI — CFO Command Center",
     page_icon="📊",
@@ -376,7 +625,7 @@ with st.sidebar:
     modules = [
         "Executive Dashboard",
         "AI CFO",
-        "Autonomous AI CFO",
+        "Autonomous AI CFO", "AI CFO Executive Brief",
         "Financial Performance",
         "Cash Flow Center",
         "Budget vs Actuals",
