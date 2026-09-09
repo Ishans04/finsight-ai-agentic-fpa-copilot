@@ -1426,15 +1426,21 @@ elif page == "What-if Scenarios":
         ["PAT Margin", base_pat / base_revenue * 100 if base_revenue else 0, scenario_pat_margin],
     ], columns=["Metric", "Baseline", "Scenario"])
 
-    display = comparison.copy()
+    # Format into a dedicated string dataframe. Do not assign formatted strings
+    # back into the numeric dataframe: newer pandas versions raise a TypeError
+    # when a string is inserted into a float64 column.
     monetary_metrics = {"Revenue", "Gross Profit", "EBITDA", "PAT", "Cash Balance"}
-    for idx, metric in enumerate(display["Metric"]):
+    display_rows = []
+    for _, row in comparison.iterrows():
+        metric = row["Metric"]
         if metric in monetary_metrics:
-            display.loc[idx, "Baseline"] = money_usd(display.loc[idx, "Baseline"])
-            display.loc[idx, "Scenario"] = money_usd(display.loc[idx, "Scenario"])
+            baseline_value = money_usd(row["Baseline"])
+            scenario_value = money_usd(row["Scenario"])
         else:
-            display.loc[idx, "Baseline"] = pct(display.loc[idx, "Baseline"])
-            display.loc[idx, "Scenario"] = pct(display.loc[idx, "Scenario"])
+            baseline_value = pct(row["Baseline"])
+            scenario_value = pct(row["Scenario"])
+        display_rows.append([metric, baseline_value, scenario_value])
+    display = pd.DataFrame(display_rows, columns=["Metric", "Baseline", "Scenario"])
 
     st.markdown("### Baseline vs Scenario")
     st.dataframe(display, use_container_width=True, hide_index=True)
