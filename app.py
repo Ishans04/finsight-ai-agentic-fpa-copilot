@@ -963,40 +963,186 @@ elif page == "AI CFO":
 
 
 # ============================================================
-# FINANCIAL PERFORMANCE
+# FINANCIAL PERFORMANCE — MANAGEMENT P&L V13
 # ============================================================
 elif page == "Financial Performance":
     st.subheader("Financial Performance")
-    st.caption("Global P&L performance by region, department and cost category.")
+    st.caption("Management P&L with actual vs budget performance, profitability drivers and regional / departmental drill-down.")
 
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Revenue", money_usd(revenue))
-    c2.metric("Actual Cost", money_usd(actual))
-    c3.metric("Profit", money_usd(profit))
-    c4.metric("Margin", pct(margin))
+    fp = view.copy()
+    fp["Month"] = pd.to_datetime(fp["Date"], errors="coerce").dt.to_period("M").dt.to_timestamp()
+    fp["Cost Type"] = fp.get("Cost Type", "Opex").astype(str)
 
-    tab1, tab2, tab3 = st.tabs(["Region", "Department", "Cost Category"])
+    # Revenue is allocated across the transaction-level cost rows, so total revenue
+    # is the sum of Revenue USD across the full filtered view. COGS/Opex are split
+    # using the explicit Cost Type field. This reconciles to the V3 management P&L.
+    total_revenue = float(fp["Revenue USD"].sum())
+    total_budget = float(fp["Budget USD"].sum())
+    total_actual_cost = float(fp["Actual USD"].sum())
+    total_cogs = float(fp.loc[fp["Cost Type"].str.upper().eq("COGS"), "Actual USD"].sum())
+    total_opex = float(fp.loc[fp["Cost Type"].str.upper().eq("OPEX"), "Actual USD"].sum())
+    total_budget_cogs = float(fp.loc[fp["Cost Type"].str.upper().eq("COGS"), "Budget USD"].sum())
+    total_budget_opex = float(fp.loc[fp["Cost Type"].str.upper().eq("OPEX"), "Budget USD"].sum())
 
-    for tab, field in [(tab1, "Region"), (tab2, "Department"), (tab3, "Cost Category")]:
-        with tab:
-            g = view.groupby(field, as_index=False).agg(
-                Revenue=("Revenue USD", "sum"),
-                Budget=("Budget USD", "sum"),
-                Actual=("Actual USD", "sum"),
-                Profit=("Profit USD", "sum"),
-            )
-            g["Variance"] = g["Actual"] - g["Budget"]
-            g["Margin %"] = np.where(g["Revenue"] != 0, g["Profit"] / g["Revenue"] * 100, 0)
+    gross_profit = total_revenue - total_cogs
+    ebitda = total_revenue - total_cogs - total_opex
 
-            fig = px.bar(g.sort_values("Variance"), x="Variance", y=field, orientation="h", title=f"Variance by {field}")
-            chart_layout(fig)
-            st.plotly_chart(fig, use_container_width=True)
+    # Management metrics are repeated at transaction level in V3. Use one value per month.
+    monthly_management = None
+    if "Gross Profit" in fp.columns and "EBITDA" in fp.columns:
+        mg_cols = [c for c in ["Gross Profit", "EBITDA", "D&A", "EBIT", "Interest / Finance Cost", "EBT", "Tax", "PAT", "Closing Cash"] if c in fp.columns]
+        if mg_cols:
+            monthly_management = fp.groupby("Month", as_index=False)[mg_cols].first().sort_values("Month")
 
-            display = g.copy()
-            for c in ["Revenue", "Budget", "Actual", "Profit", "Variance"]:
-                display[c] = display[c].map(money_usd)
-            display["Margin %"] = g["Margin %"].map(pct)
-            st.dataframe(display, use_container_width=True, hide_index=True)
+    def latest_or_sum(col, fallback):
+        if monthly_management is not None and col in monthly_management.columns and not monthly_management.empty:
+            return float(monthly_management[col].sum())
+        return float(fallback)
+
+    mg_gross_profit = latest_or_sum("Gross Profit", gross_profit)
+    mg_ebitda = latest_or_sum("EBITDA", ebitda)
+    mg_da = latest_or_sum("D&A", 0.0)
+    mg_ebit = latest_or_sum("EBIT", mg_ebitda - mg_da)
+    mg_interest = latest_or_sum("Interest / Finance Cost", 0.0)
+    mg_ebt = latest_or_sum("EBT", mg_ebit - mg_interest)
+    mg_tax = latest_or_sum("Tax", 0.0)
+    mg_pat = latest_or_sum("PAT", mg_ebt - mg_tax)
+
+    gross_margin = mg_gross_profit / total_revenue * 100 if total_revenue else 0
+    ebitda_margin = mg_ebitda / total_revenue * 100 if total_revenue else 0
+    pat_margin = mg_pat / total_revenue * 100 if total_revenue else 0
+
+    # Budget P&L is supported through EBITDA because the source provides budgeted
+    # revenue and operating costs, but does not provide budget D&A / tax assumptions.
+    budget_revenue = total_budget
+    budget_gross_profit = budget_revenue - total_budget_cogs
+    budget_ebitda = budget_revenue - total_budget_cogs - total_budget_opex
+    budget_gross_margin = budget_gross_profit / budget_revenue * 100 if budget_revenue else 0
+    budget_ebitda_margin = budget_ebitda / budget_revenue * 100 if budget_revenue else 0
+
+    k1, k2, k3, k4, k5, k6 = st.columns(6)
+    k1.metric("Revenue", money_usd(total_revenue))
+    k2.metric("Gross Profit", money_usd(mg_gross_profit))
+    k3.metric("EBITDA", money_usd(mg_ebitda))
+    k4.metric("EBITDA Margin", pct(ebitda_margin))
+    k5.metric("PAT", money_usd(mg_pat))
+    k6.metric("PAT Margin", pct(pat_margin))
+
+    st.markdown("### Management P&L")
+    pnl = pd.DataFrame([
+        ["Revenue", total_revenue, budget_revenue, total_revenue - budget_revenue, (total_revenue-budget_revenue)/budget_revenue*100 if budget_revenue else 0],
+        ["COGS", total_cogs, total_budget_cogs, total_cogs - total_budget_cogs, (total_cogs-total_budget_cogs)/total_budget_cogs*100 if total_budget_cogs else 0],
+        ["Gross Profit", mg_gross_profit, budget_gross_profit, mg_gross_profit-budget_gross_profit, (mg_gross_profit-budget_gross_profit)/budget_gross_profit*100 if budget_gross_profit else 0],
+        ["Opex", total_opex, total_budget_opex, total_opex-total_budget_opex, (total_opex-total_budget_opex)/total_budget_opex*100 if total_budget_opex else 0],
+        ["EBITDA", mg_ebitda, budget_ebitda, mg_ebitda-budget_ebitda, (mg_ebitda-budget_ebitda)/budget_ebitda*100 if budget_ebitda else 0],
+        ["D&A", mg_da, np.nan, np.nan, np.nan],
+        ["EBIT", mg_ebit, np.nan, np.nan, np.nan],
+        ["Interest / Finance Cost", mg_interest, np.nan, np.nan, np.nan],
+        ["EBT", mg_ebt, np.nan, np.nan, np.nan],
+        ["Tax", mg_tax, np.nan, np.nan, np.nan],
+        ["PAT", mg_pat, np.nan, np.nan, np.nan],
+    ], columns=["Metric", "Actual", "Budget", "Variance", "Variance %"])
+
+    pnl_display = pnl.copy()
+    for c in ["Actual", "Budget", "Variance"]:
+        pnl_display[c] = pnl[c].map(lambda x: money_usd(x) if pd.notna(x) else "N/A")
+    pnl_display["Variance %"] = pnl["Variance %"].map(lambda x: pct(x) if pd.notna(x) else "N/A")
+    st.dataframe(pnl_display, use_container_width=True, hide_index=True)
+    st.caption("Budget comparison is available through EBITDA. The V3 source does not contain budget D&A, interest or tax assumptions, so those lines are shown as N/A rather than estimated.")
+
+    st.markdown("### Profitability Trend")
+    monthly = fp.groupby("Month", as_index=False).agg(
+        Revenue=("Revenue USD", "sum"),
+        Budget_Revenue=("Budget USD", "sum"),
+        COGS=("Actual USD", lambda s: 0.0),
+    )
+    cogs_month = fp[fp["Cost Type"].str.upper().eq("COGS")].groupby("Month", as_index=False).agg(COGS=("Actual USD", "sum"))
+    opex_month = fp[fp["Cost Type"].str.upper().eq("OPEX")].groupby("Month", as_index=False).agg(Opex=("Actual USD", "sum"))
+    monthly = monthly.drop(columns=["COGS"]).merge(cogs_month, on="Month", how="left").merge(opex_month, on="Month", how="left")
+    monthly[["COGS", "Opex"]] = monthly[["COGS", "Opex"]].fillna(0)
+    monthly["Gross Profit"] = monthly["Revenue"] - monthly["COGS"]
+    monthly["EBITDA"] = monthly["Gross Profit"] - monthly["Opex"]
+
+    if monthly_management is not None:
+        keep = [c for c in ["Month", "D&A", "EBIT", "PAT"] if c in monthly_management.columns]
+        if len(keep) > 1:
+            monthly = monthly.merge(monthly_management[keep], on="Month", how="left")
+    for c in ["EBIT", "PAT"]:
+        if c not in monthly.columns:
+            monthly[c] = monthly["EBITDA"] if c == "EBIT" else monthly["EBITDA"] * (mg_pat / mg_ebitda if mg_ebitda else 0)
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=monthly["Month"], y=monthly["Revenue"], mode="lines+markers", name="Revenue"))
+    fig.add_trace(go.Scatter(x=monthly["Month"], y=monthly["Gross Profit"], mode="lines+markers", name="Gross Profit"))
+    fig.add_trace(go.Scatter(x=monthly["Month"], y=monthly["EBITDA"], mode="lines+markers", name="EBITDA"))
+    fig.add_trace(go.Scatter(x=monthly["Month"], y=monthly["PAT"], mode="lines+markers", name="PAT"))
+    chart_layout(fig, height=410)
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown("### EBITDA Bridge")
+    bridge = pd.DataFrame({
+        "Component": ["Revenue", "COGS", "Opex", "EBITDA"],
+        "Impact": [total_revenue, -total_cogs, -total_opex, mg_ebitda],
+    })
+    fig_bridge = go.Figure(go.Waterfall(
+        name="EBITDA",
+        orientation="v",
+        measure=["absolute", "relative", "relative", "total"],
+        x=bridge["Component"],
+        y=bridge["Impact"],
+        text=[money_usd(v) for v in bridge["Impact"]],
+        textposition="outside",
+        connector={"line": {"width": 1}},
+    ))
+    fig_bridge.update_layout(template="plotly_dark", height=400, paper_bgcolor="#0b1827", plot_bgcolor="#0b1827", margin=dict(l=20,r=20,t=45,b=20), title="Revenue to EBITDA")
+    st.plotly_chart(fig_bridge, use_container_width=True)
+
+    st.markdown("### Profitability by Region")
+    regional = fp.groupby("Region", as_index=False).agg(
+        Revenue=("Revenue USD", "sum"),
+        Budget=("Budget USD", "sum"),
+    )
+    reg_cogs = fp[fp["Cost Type"].str.upper().eq("COGS")].groupby("Region", as_index=False).agg(COGS=("Actual USD", "sum"))
+    reg_opex = fp[fp["Cost Type"].str.upper().eq("OPEX")].groupby("Region", as_index=False).agg(Opex=("Actual USD", "sum"))
+    regional = regional.merge(reg_cogs, on="Region", how="left").merge(reg_opex, on="Region", how="left").fillna(0)
+    regional["Gross Profit"] = regional["Revenue"] - regional["COGS"]
+    regional["EBITDA"] = regional["Gross Profit"] - regional["Opex"]
+    regional["EBITDA Margin %"] = np.where(regional["Revenue"] != 0, regional["EBITDA"] / regional["Revenue"] * 100, 0)
+
+    r1, r2 = st.columns(2)
+    with r1:
+        fig = px.bar(regional.sort_values("EBITDA"), x="EBITDA", y="Region", orientation="h", title="EBITDA by Region")
+        chart_layout(fig)
+        st.plotly_chart(fig, use_container_width=True)
+    with r2:
+        fig = px.bar(regional.sort_values("EBITDA Margin %"), x="EBITDA Margin %", y="Region", orientation="h", title="EBITDA Margin by Region")
+        chart_layout(fig)
+        st.plotly_chart(fig, use_container_width=True)
+
+    regional_display = regional.copy()
+    for c in ["Revenue", "Budget", "COGS", "Opex", "Gross Profit", "EBITDA"]:
+        regional_display[c] = regional[c].map(money_usd)
+    regional_display["EBITDA Margin %"] = regional["EBITDA Margin %"].map(pct)
+    st.dataframe(regional_display, use_container_width=True, hide_index=True)
+
+    st.markdown("### Department Profitability")
+    dept = fp.groupby("Department", as_index=False).agg(Revenue=("Revenue USD", "sum"))
+    d_cogs = fp[fp["Cost Type"].str.upper().eq("COGS")].groupby("Department", as_index=False).agg(COGS=("Actual USD", "sum"))
+    d_opex = fp[fp["Cost Type"].str.upper().eq("OPEX")].groupby("Department", as_index=False).agg(Opex=("Actual USD", "sum"))
+    dept = dept.merge(d_cogs, on="Department", how="left").merge(d_opex, on="Department", how="left").fillna(0)
+    dept["Gross Profit"] = dept["Revenue"] - dept["COGS"]
+    dept["EBITDA"] = dept["Gross Profit"] - dept["Opex"]
+    dept["EBITDA Margin %"] = np.where(dept["Revenue"] != 0, dept["EBITDA"] / dept["Revenue"] * 100, 0)
+    dept_display = dept.copy()
+    for c in ["Revenue", "COGS", "Opex", "Gross Profit", "EBITDA"]:
+        dept_display[c] = dept[c].map(money_usd)
+    dept_display["EBITDA Margin %"] = dept["EBITDA Margin %"].map(pct)
+    st.dataframe(dept_display.sort_values("EBITDA", ascending=False), use_container_width=True, hide_index=True)
+
+    st.info(
+        f"CFO view: revenue is {money_usd(total_revenue)}, gross margin is {pct(gross_margin)}, "
+        f"EBITDA is {money_usd(mg_ebitda)} at {pct(ebitda_margin)}, and PAT is {money_usd(mg_pat)} at {pct(pat_margin)}."
+    )
 
 
 # ============================================================
