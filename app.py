@@ -542,15 +542,53 @@ def chart_layout(fig, height=370):
 
 
 # ============================================================
-# EXECUTIVE DASHBOARD
+# EXECUTIVE DASHBOARD — CFO-GRADE V7
 # ============================================================
 if page == "Executive Dashboard":
     st.subheader("Executive Dashboard")
-    st.caption("CFO view of revenue, profitability, cash, budget performance and enterprise risk.")
+    st.caption("CFO view of growth, profitability, liquidity, budget performance and enterprise risk.")
 
-    # Management-layer fields in V3 are monthly values repeated across transaction rows.
-    # Never sum those repeated columns and never take only the first transaction row.
-    mgmt = view.copy()
+    # Dashboard period control. Global sidebar filters still apply first.
+    period_col, view_col = st.columns([1, 2.4])
+    with period_col:
+        dashboard_period = st.selectbox(
+            "Analysis Period",
+            ["Selected Range", "Monthly", "Quarterly", "YTD", "FY"],
+            index=0,
+            key="dashboard_period_v7",
+        )
+    with view_col:
+        st.caption("Period controls sit on top of the global Region / Country / Department / Date filters.")
+
+    dashboard_view = view.copy()
+    dashboard_view["Month"] = pd.to_datetime(dashboard_view["Date"], errors="coerce").dt.to_period("M").dt.to_timestamp()
+    max_date = dashboard_view["Date"].max()
+
+    if pd.notna(max_date):
+        if dashboard_period == "YTD":
+            dashboard_view = dashboard_view[dashboard_view["Date"].dt.year == max_date.year].copy()
+        elif dashboard_period == "FY":
+            dashboard_view = dashboard_view[dashboard_view["Date"].dt.year == max_date.year].copy()
+        elif dashboard_period == "Quarterly":
+            q_period = pd.Period(max_date, freq="Q")
+            dashboard_view = dashboard_view[dashboard_view["Date"].dt.to_period("Q") == q_period].copy()
+        elif dashboard_period == "Monthly":
+            m_period = pd.Period(max_date, freq="M")
+            dashboard_view = dashboard_view[dashboard_view["Date"].dt.to_period("M") == m_period].copy()
+        # Selected Range intentionally keeps the full globally filtered view.
+
+    if dashboard_view.empty:
+        st.warning("No data is available for the selected dashboard period. Adjust the global date filter or choose another period.")
+        dashboard_view = view.copy()
+        dashboard_view["Month"] = pd.to_datetime(dashboard_view["Date"], errors="coerce").dt.to_period("M").dt.to_timestamp()
+
+    # Core P&L measures for the selected dashboard period.
+    revenue = float(dashboard_view["Revenue USD"].sum())
+    actual = float(dashboard_view["Actual USD"].sum())
+    budget = float(dashboard_view["Budget USD"].sum())
+    variance = actual - budget
+
+    mgmt = dashboard_view.copy()
     mgmt["Month"] = pd.to_datetime(mgmt["Date"], errors="coerce").dt.to_period("M").dt.to_timestamp()
 
     if "Cost Type" in mgmt.columns:
@@ -558,9 +596,8 @@ if page == "Executive Dashboard":
         opex_total = float(mgmt.loc[mgmt["Cost Type"].eq("Opex"), "Actual USD"].sum())
     else:
         cogs_total = 0.0
-        opex_total = float(actual)
+        opex_total = actual
 
-    # V3 management measures are stored once per month (but repeated per row).
     if "Gross Profit" in mgmt.columns:
         gross_profit = float(mgmt.groupby("Month")["Gross Profit"].first().sum())
     else:
@@ -577,20 +614,23 @@ if page == "Executive Dashboard":
         pat = float(ebitda - revenue * 0.04)
 
     if "Closing Cash" in mgmt.columns:
-        cash_balance = float(mgmt.groupby("Month")["Closing Cash"].first().sort_index().iloc[-1])
+        cash_series = mgmt.groupby("Month")["Closing Cash"].first().sort_index()
+        cash_balance = float(cash_series.iloc[-1]) if len(cash_series) else 0.0
     else:
-        cash_balance = float((mgmt.groupby("Month")["Revenue USD"].sum() - mgmt.groupby("Month")["Actual USD"].sum()).cumsum().iloc[-1])
+        monthly_cash = mgmt.groupby("Month").agg(Revenue=("Revenue USD", "sum"), Actual=("Actual USD", "sum"))
+        cash_balance = float((monthly_cash["Revenue"] - monthly_cash["Actual"]).cumsum().iloc[-1]) if len(monthly_cash) else 0.0
 
     gross_margin = gross_profit / revenue * 100 if revenue else 0
     ebitda_margin = ebitda / revenue * 100 if revenue else 0
     pat_margin = pat / revenue * 100 if revenue else 0
+    variance_pct = variance / budget * 100 if budget else 0
 
-    anomaly_count = int(view["Anomaly Flag"].sum())
+    anomaly_count = int(dashboard_view["Anomaly Flag"].sum())
     variance_risk = min(abs(variance_pct) * 8, 55)
-    anomaly_risk = min(anomaly_count / max(len(view), 1) * 100 * 1.8, 35)
+    anomaly_risk = min(anomaly_count / max(len(dashboard_view), 1) * 100 * 1.8, 35)
     risk_score = min(max(variance_risk + anomaly_risk, 0), 100)
 
-    # Six CFO-level KPIs
+    # KPI cards — the six metrics a CFO should see first.
     kpi_cols = st.columns(6)
     cards = [
         ("Revenue", money_usd(revenue), "Group revenue"),
@@ -610,13 +650,26 @@ if page == "Executive Dashboard":
 
     st.write("")
 
-    # Monthly management view. Use first value for management metrics because
-    # V3 stores monthly P&L measures on each transaction row.
-    monthly_base = view.copy()
-    monthly_base["Month"] = pd.to_datetime(monthly_base["Date"]).dt.to_period("M").dt.to_timestamp()
+    # CFO pulse: compact interpretation of the selected period.
+    pulse1, pulse2, pulse3 = st.columns(3)
+    with pulse1:
+        if variance > 0:
+            html_block(f'<div class="danger"><b>🔴 Budget Pressure</b><br>{money_usd(variance)} unfavorable cost variance.<br><span class="small">{pct(abs(variance_pct))} of budget.</span></div>')
+        else:
+            html_block(f'<div class="insight"><b>🟢 Budget Performance</b><br>{money_usd(abs(variance))} favorable vs budget.<br><span class="small">Validate whether savings are sustainable.</span></div>')
+    with pulse2:
+        status = "Healthy" if ebitda_margin >= 18 else "Watch" if ebitda_margin >= 15 else "Pressure"
+        cls = "insight" if status == "Healthy" else "warning" if status == "Watch" else "danger"
+        html_block(f'<div class="{cls}"><b>📈 Profitability: {status}</b><br>EBITDA margin is {pct(ebitda_margin)}.<br><span class="small">PAT margin: {pct(pat_margin)}.</span></div>')
+    with pulse3:
+        risk_label = "Low" if risk_score < 30 else "Moderate" if risk_score < 60 else "High"
+        cls = "insight" if risk_label == "Low" else "warning" if risk_label == "Moderate" else "danger"
+        html_block(f'<div class="{cls}"><b>🛡 Enterprise Risk: {risk_label}</b><br>Risk score {risk_score:.0f}/100.<br><span class="small">{anomaly_count:,} transactions flagged for review.</span></div>')
 
-    # Build the monthly management view defensively. Some uploaded V3 files
-    # may not contain every management-layer column.
+    # Monthly management view. V3 management metrics are repeated on transaction rows,
+    # so monthly P&L values use FIRST rather than SUM.
+    monthly_base = view.copy()
+    monthly_base["Month"] = pd.to_datetime(monthly_base["Date"], errors="coerce").dt.to_period("M").dt.to_timestamp()
     monthly = monthly_base.groupby("Month", as_index=False).agg(
         Revenue=("Revenue USD", "sum"),
         Budget=("Budget USD", "sum"),
@@ -624,14 +677,8 @@ if page == "Executive Dashboard":
     )
 
     if "Cost Type" in monthly_base.columns:
-        cogs_month = (
-            monthly_base.loc[monthly_base["Cost Type"].eq("COGS")]
-            .groupby("Month")["Actual USD"].sum()
-        )
-        opex_month = (
-            monthly_base.loc[monthly_base["Cost Type"].eq("Opex")]
-            .groupby("Month")["Actual USD"].sum()
-        )
+        cogs_month = monthly_base.loc[monthly_base["Cost Type"].eq("COGS")].groupby("Month")["Actual USD"].sum()
+        opex_month = monthly_base.loc[monthly_base["Cost Type"].eq("Opex")].groupby("Month")["Actual USD"].sum()
         monthly["COGS"] = monthly["Month"].map(cogs_month).fillna(0)
         monthly["Opex"] = monthly["Month"].map(opex_month).fillna(0)
     else:
@@ -644,29 +691,22 @@ if page == "Executive Dashboard":
     if "Gross Profit" in monthly_base.columns:
         gp = monthly_base.groupby("Month")["Gross Profit"].first()
         monthly["Gross_Profit"] = monthly["Month"].map(gp).fillna(monthly["Gross_Profit"])
-
     if "EBITDA" in monthly_base.columns:
         eb = monthly_base.groupby("Month")["EBITDA"].first()
         monthly["EBITDA"] = monthly["Month"].map(eb).fillna(monthly["EBITDA"])
-
     if "PAT" in monthly_base.columns:
         pat_series = monthly_base.groupby("Month")["PAT"].first()
         monthly["PAT"] = monthly["Month"].map(pat_series)
     else:
         monthly["PAT"] = np.nan
-
     if "Closing Cash" in monthly_base.columns:
         cash_series = monthly_base.groupby("Month")["Closing Cash"].first()
         monthly["Cash"] = monthly["Month"].map(cash_series)
     else:
         monthly["Cash"] = (monthly["Revenue"] - monthly["Actual_Cost"]).cumsum()
-
-    monthly["PAT"] = monthly["PAT"].fillna(
-        monthly["EBITDA"] - monthly["Revenue"] * 0.04
-    )
+    monthly["PAT"] = monthly["PAT"].fillna(monthly["EBITDA"] - monthly["Revenue"] * 0.04)
 
     left, right = st.columns([1.65, 1])
-
     with left:
         st.subheader("Revenue vs Budget")
         fig = go.Figure()
@@ -699,7 +739,6 @@ if page == "Executive Dashboard":
     st.plotly_chart(fig, use_container_width=True)
 
     cash_col, region_col = st.columns([1.15, 1])
-
     with cash_col:
         st.subheader("Cash Flow Overview")
         cash_chart = go.Figure()
@@ -710,19 +749,15 @@ if page == "Executive Dashboard":
 
     with region_col:
         st.subheader("Regional Performance")
-        regional = view.groupby("Region", as_index=False).agg(
+        regional = dashboard_view.groupby("Region", as_index=False).agg(
             Revenue=("Revenue USD", "sum"),
             Budget=("Budget USD", "sum"),
             Actual=("Actual USD", "sum"),
         )
         regional["Variance"] = regional["Actual"] - regional["Budget"]
-
-        # Regional EBITDA is taken from the monthly management layer and
-        # allocated by each region's revenue share for a useful management view.
         regional["Revenue Share"] = regional["Revenue"] / max(regional["Revenue"].sum(), 1)
         regional["EBITDA"] = ebitda * regional["Revenue Share"]
-        regional["EBITDA Margin %"] = regional["EBITDA"] / regional["Revenue"] * 100
-
+        regional["EBITDA Margin %"] = np.where(regional["Revenue"] != 0, regional["EBITDA"] / regional["Revenue"] * 100, 0)
         display = regional.drop(columns=["Revenue Share"]).copy()
         for c in ["Revenue", "Budget", "Actual", "Variance", "EBITDA"]:
             display[c] = display[c].map(money_usd)
@@ -730,56 +765,39 @@ if page == "Executive Dashboard":
         st.dataframe(display, use_container_width=True, hide_index=True)
 
     cost_col, action_col = st.columns([1.15, 1])
-
     with cost_col:
         st.subheader("Top Cost Drivers")
-        cost = view.groupby("Cost Category", as_index=False).agg(
-            Budget=("Budget USD", "sum"),
-            Actual=("Actual USD", "sum"),
-        )
+        cost = dashboard_view.groupby("Cost Category", as_index=False).agg(Budget=("Budget USD", "sum"), Actual=("Actual USD", "sum"))
         cost["Variance"] = cost["Actual"] - cost["Budget"]
         top_cost = cost.sort_values("Variance", ascending=False).head(8)
-
-        fig = px.bar(
-            top_cost.sort_values("Variance"),
-            x="Variance",
-            y="Cost Category",
-            orientation="h",
-            title="Unfavorable Variance",
-        )
+        fig = px.bar(top_cost.sort_values("Variance"), x="Variance", y="Cost Category", orientation="h", title="Unfavorable Variance")
         chart_layout(fig, height=330)
         fig.update_xaxes(tickprefix="$", tickformat="~s")
         st.plotly_chart(fig, use_container_width=True)
 
     with action_col:
         st.subheader("AI CFO Recommended Actions")
-
         if variance > 0:
-            html_block(
-                f'<div class="danger"><b>🔴 Cost Control</b><br>'
-                f'Actual cost is {money_usd(variance)} above budget.<br>'
-                f'<span class="small">Owner: Finance Controller · Investigate the largest cost drivers.</span></div>'
-            )
+            html_block(f'<div class="danger"><b>🔴 Cost Control</b><br>Actual cost is {money_usd(variance)} above budget.<br><span class="small">Owner: Finance Controller · Investigate the largest cost drivers.</span></div>')
         else:
-            html_block(
-                f'<div class="insight"><b>🟢 Cost Performance</b><br>'
-                f'Actual cost is {money_usd(abs(variance))} below budget.<br>'
-                f'<span class="small">Owner: FP&A · Validate sustainability of the savings.</span></div>'
-            )
-
+            html_block(f'<div class="insight"><b>🟢 Cost Performance</b><br>Actual cost is {money_usd(abs(variance))} below budget.<br><span class="small">Owner: FP&A · Validate sustainability of the savings.</span></div>')
         if anomaly_count:
-            html_block(
-                f'<div class="warning"><b>🟠 Risk Investigation</b><br>'
-                f'{anomaly_count:,} transactions are flagged for review.<br>'
-                f'<span class="small">Owner: Controller · Prioritize high-value anomalies.</span></div>'
-            )
+            html_block(f'<div class="warning"><b>🟠 Risk Investigation</b><br>{anomaly_count:,} transactions are flagged for review.<br><span class="small">Owner: Controller · Prioritize high-value anomalies.</span></div>')
+        open_count, progress_count, resolved_count = action_status_counts()
+        html_block(f'<div class="insight"><b>🎯 Management Actions</b><br>{open_count} open · {progress_count} in progress · {resolved_count} resolved.<br><span class="small">Use AI CFO Action Center to track ownership and closure.</span></div>')
+        html_block(f'<div class="insight"><b>🟢 Profitability</b><br>Gross margin is {pct(gross_margin)}, EBITDA margin is {pct(ebitda_margin)}, and PAT margin is {pct(pat_margin)}.<br><span class="small">CFO focus: protect profitable growth and cash generation.</span></div>')
 
-        html_block(
-            f'<div class="insight"><b>🟢 Profitability</b><br>'
-            f'Gross margin is {pct(gross_margin)}, EBITDA margin is {pct(ebitda_margin)}, '
-            f'and PAT margin is {pct(pat_margin)}.<br>'
-            f'<span class="small">CFO focus: protect profitable growth and cash generation.</span></div>'
-        )
+    st.subheader("CFO Management Snapshot")
+    snap = pd.DataFrame([
+        ["Revenue", revenue, "Growth / top-line performance"],
+        ["Gross Profit", gross_profit, "Gross margin protection"],
+        ["EBITDA", ebitda, "Operating earnings"],
+        ["PAT", pat, "Bottom-line earnings"],
+        ["Cash Balance", cash_balance, "Liquidity position"],
+        ["Unfavorable Variance", max(variance, 0), "Immediate cost-control exposure"],
+    ], columns=["Metric", "Value", "CFO Focus"])
+    snap["Value"] = snap["Value"].map(money_usd)
+    st.dataframe(snap, use_container_width=True, hide_index=True)
 
 
 # ============================================================
