@@ -1389,23 +1389,174 @@ elif page == "Data Mapping":
 
 
 # ============================================================
-# DATA QUALITY
+# DATA QUALITY & CONTROLS
 # ============================================================
 elif page == "Data Quality":
-    st.subheader("Data Quality")
+    st.subheader("Data Quality & Controls")
+    st.caption("Pre-reporting controls across completeness, duplicates, hierarchy, dates, currency and financial integrity.")
 
-    quality = []
-    for col in ["Date", "Region", "Country", "Legal Entity", "Department", "Cost Category", "Budget USD", "Actual USD", "Revenue USD"]:
-        if col in view.columns:
-            nulls = int(view[col].isna().sum())
-            quality.append({
+    q = view.copy()
+    n = max(len(q), 1)
+
+    # ----------------------------
+    # Control calculations
+    # ----------------------------
+    key_fields = [
+        "Transaction ID", "Date", "Region", "Country", "Legal Entity",
+        "Department", "Cost Center", "Profit Center", "GL Account",
+        "Cost Category", "Currency", "Budget USD", "Actual USD", "Revenue USD"
+    ]
+    available_keys = [c for c in key_fields if c in q.columns]
+    missing_cells = int(q[available_keys].isna().sum().sum()) if available_keys else 0
+    total_key_cells = max(n * max(len(available_keys), 1), 1)
+    completeness = max(0.0, 100.0 * (1 - missing_cells / total_key_cells))
+
+    duplicate_rows = int(q.duplicated().sum())
+    duplicate_ids = int(q["Transaction ID"].duplicated(keep=False).sum()) if "Transaction ID" in q.columns else 0
+
+    dates = pd.to_datetime(q["Date"], errors="coerce") if "Date" in q.columns else pd.Series(pd.NaT, index=q.index)
+    invalid_dates = int(dates.isna().sum())
+
+    hierarchy_fields = ["Region", "Country", "Legal Entity", "Department", "Cost Center", "Profit Center", "GL Account", "Cost Category"]
+    hierarchy_missing = int(q[[c for c in hierarchy_fields if c in q.columns]].isna().sum().sum()) if any(c in q.columns for c in hierarchy_fields) else 0
+
+    # Financial integrity: Actual - Budget should reconcile to Variance USD.
+    variance_mismatch = 0
+    if all(c in q.columns for c in ["Actual USD", "Budget USD", "Variance USD"]):
+        actual = pd.to_numeric(q["Actual USD"], errors="coerce")
+        budget = pd.to_numeric(q["Budget USD"], errors="coerce")
+        variance = pd.to_numeric(q["Variance USD"], errors="coerce")
+        variance_mismatch = int((actual.notna() & budget.notna() & variance.notna() & ((actual - budget - variance).abs() > 0.01)).sum())
+
+    margin_mismatch = 0
+    if all(c in q.columns for c in ["Revenue USD", "Profit USD", "Margin %"]):
+        revenue = pd.to_numeric(q["Revenue USD"], errors="coerce")
+        profit = pd.to_numeric(q["Profit USD"], errors="coerce")
+        stored_margin = pd.to_numeric(q["Margin %"], errors="coerce")
+        expected_margin = np.where(revenue.abs() > 0, profit / revenue.abs() * 100, 0)
+        margin_mismatch = int((np.isfinite(expected_margin) & stored_margin.notna() & (np.abs(expected_margin - stored_margin) > 0.1)).sum())
+
+    currency_issues = 0
+    if "Currency" in q.columns:
+        currency_issues += int(q["Currency"].isna().sum())
+    if "FX Rate to USD" in q.columns:
+        fx = pd.to_numeric(q["FX Rate to USD"], errors="coerce")
+        currency_issues += int((fx.isna() | (fx <= 0)).sum())
+
+    anomaly_issues = 0
+    if "Anomaly Flag" in q.columns:
+        flags = pd.to_numeric(q["Anomaly Flag"], errors="coerce")
+        anomaly_issues = int((flags.notna() & ~flags.isin([0, 1])).sum())
+
+    payment_date_issues = 0
+    if "Payment Due Date" in q.columns:
+        payment_dates = pd.to_datetime(q["Payment Due Date"], errors="coerce")
+        payment_date_issues = int((q["Payment Due Date"].notna() & payment_dates.isna()).sum())
+
+    # Weighted score. This is a control score, not a statistical confidence score.
+    duplicate_issue_rate = min(100.0, ((duplicate_rows + duplicate_ids) / max(n, 1)) * 100)
+    date_issue_rate = min(100.0, invalid_dates / n * 100)
+    hierarchy_issue_rate = min(100.0, hierarchy_missing / max(n * max(len([c for c in hierarchy_fields if c in q.columns]), 1), 1) * 100)
+    financial_issue_rate = min(100.0, (variance_mismatch + margin_mismatch) / max(2 * n, 1) * 100)
+    currency_issue_rate = min(100.0, currency_issues / n * 100)
+    anomaly_issue_rate = min(100.0, anomaly_issues / n * 100)
+    payment_issue_rate = min(100.0, payment_date_issues / n * 100)
+
+    score = round(
+        completeness * 0.25
+        + (100 - duplicate_issue_rate) * 0.15
+        + (100 - date_issue_rate) * 0.10
+        + (100 - hierarchy_issue_rate) * 0.15
+        + (100 - financial_issue_rate) * 0.20
+        + (100 - currency_issue_rate) * 0.05
+        + (100 - anomaly_issue_rate) * 0.05
+        + (100 - payment_issue_rate) * 0.05,
+        1,
+    )
+
+    total_exceptions = (missing_cells + duplicate_rows + invalid_dates + hierarchy_missing + variance_mismatch + margin_mismatch + currency_issues + anomaly_issues + payment_date_issues)
+
+    status = "Excellent" if score >= 98 else "Good" if score >= 90 else "Needs Review" if score >= 75 else "Critical"
+
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.metric("Data Quality Score", f"{score:.1f}/100")
+    with c2:
+        st.metric("Rows Reviewed", f"{len(q):,}")
+    with c3:
+        st.metric("Exceptions", f"{total_exceptions:,}")
+    with c4:
+        st.metric("Control Status", status)
+
+    if score >= 98:
+        st.success(f"Data Quality: {score:.1f}/100 — {status}. Dataset is ready for management reporting.")
+    elif score >= 90:
+        st.info(f"Data Quality: {score:.1f}/100 — {status}. Review the exceptions below before final reporting.")
+    else:
+        st.warning(f"Data Quality: {score:.1f}/100 — {status}. Resolve material control exceptions before relying on the output.")
+
+    # ----------------------------
+    # Control matrix
+    # ----------------------------
+    controls = pd.DataFrame([
+        ["Completeness", missing_cells, f"{completeness:.1f}%", "Pass" if missing_cells == 0 else "Review", "Required reporting fields are populated"],
+        ["Duplicate rows", duplicate_rows, "100% unique" if duplicate_rows == 0 else "Duplicates found", "Pass" if duplicate_rows == 0 else "Review", "No identical transaction rows"],
+        ["Duplicate Transaction IDs", duplicate_ids, "Unique IDs" if duplicate_ids == 0 else "Repeated IDs", "Pass" if duplicate_ids == 0 else "Review", "Transaction IDs should be unique"],
+        ["Date validity", invalid_dates, "Valid dates" if invalid_dates == 0 else "Invalid dates", "Pass" if invalid_dates == 0 else "Review", "Transaction dates parse correctly"],
+        ["ERP hierarchy", hierarchy_missing, "Complete" if hierarchy_missing == 0 else "Missing mappings", "Pass" if hierarchy_missing == 0 else "Review", "Region → Entity → Department → GL mapping"],
+        ["Variance reconciliation", variance_mismatch, "Reconciled" if variance_mismatch == 0 else "Mismatch", "Pass" if variance_mismatch == 0 else "Review", "Actual − Budget = Variance"],
+        ["Margin reconciliation", margin_mismatch, "Reconciled" if margin_mismatch == 0 else "Mismatch", "Pass" if margin_mismatch == 0 else "Review", "Profit / Revenue = Margin"],
+        ["Currency / FX", currency_issues, "Valid" if currency_issues == 0 else "Issues", "Pass" if currency_issues == 0 else "Review", "Currency and FX rates are usable"],
+        ["Anomaly flags", anomaly_issues, "Valid" if anomaly_issues == 0 else "Invalid flags", "Pass" if anomaly_issues == 0 else "Review", "Anomaly Flag is 0/1"],
+        ["Payment due dates", payment_date_issues, "Valid" if payment_date_issues == 0 else "Issues", "Pass" if payment_date_issues == 0 else "Review", "Due dates parse correctly"],
+    ], columns=["Control", "Exceptions", "Result", "Status", "Control Objective"])
+
+    st.markdown("### Control Matrix")
+    st.dataframe(controls, use_container_width=True, hide_index=True)
+
+    # ----------------------------
+    # Field-level completeness
+    # ----------------------------
+    st.markdown("### Field Completeness")
+    field_rows = []
+    for col in key_fields:
+        if col in q.columns:
+            nulls = int(q[col].isna().sum())
+            field_rows.append({
                 "Field": col,
-                "Rows": len(view),
+                "Rows": len(q),
                 "Missing": nulls,
-                "Completeness": f"{(1 - nulls / max(len(view), 1)) * 100:.1f}%",
+                "Completeness": f"{(1 - nulls / n) * 100:.1f}%",
+                "Status": "Pass" if nulls == 0 else "Review",
             })
+    st.dataframe(pd.DataFrame(field_rows), use_container_width=True, hide_index=True)
 
-    st.dataframe(pd.DataFrame(quality), use_container_width=True, hide_index=True)
+    # ----------------------------
+    # Exceptions / remediation
+    # ----------------------------
+    st.markdown("### Control Guidance")
+    guidance = []
+    if missing_cells:
+        guidance.append("Complete missing mandatory ERP fields before management reporting.")
+    if duplicate_rows or duplicate_ids:
+        guidance.append("Investigate duplicate transaction records or repeated transaction IDs.")
+    if hierarchy_missing:
+        guidance.append("Review ERP master-data mappings across Region, Entity, Department, Cost Center, Profit Center and GL.")
+    if variance_mismatch:
+        guidance.append("Reconcile transactions where Actual − Budget does not equal Variance USD.")
+    if margin_mismatch:
+        guidance.append("Reconcile stored margin percentages against Profit / Revenue.")
+    if currency_issues:
+        guidance.append("Validate currency codes and positive FX rates before USD consolidation.")
+    if anomaly_issues:
+        guidance.append("Normalize anomaly flags to 0/1 before downstream risk analytics.")
+    if payment_date_issues:
+        guidance.append("Correct invalid payment due dates before liquidity analysis.")
+    if not guidance:
+        guidance.append("No control exceptions detected in the current filtered dataset.")
+
+    for item in guidance:
+        st.write("• " + item)
 
 
 # ============================================================
