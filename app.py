@@ -3897,8 +3897,8 @@ elif page == "Ratio Analysis":
 
     if market.empty:
         st.markdown("### Market Analytics")
-        st.info("Upload market price history, or use the bundled synthetic demo market CSV, to calculate Alpha, Beta, R, R², Sharpe, Sortino, Treynor, Information Ratio, volatility, VaR and maximum drawdown.")
-        st.caption("Expected columns: Date, Asset Price, Benchmark Price. Market analytics are intentionally kept separate from ERP accounting data.")
+        st.info("Upload the demo market CSV or your own market price history to activate the market charts and analytics.")
+        st.caption("Expected columns: Date, Asset Price, Benchmark Price. Market analytics remain separate from ERP accounting data.")
     else:
         market["Asset Return"] = market["Asset Price"].pct_change()
         has_benchmark = "Benchmark Price" in market.columns
@@ -3907,33 +3907,32 @@ elif page == "Ratio Analysis":
         ret = market.dropna(subset=["Asset Return"]).copy()
 
         annual_factor = 252
-        asset_mean = ret["Asset Return"].mean()
-        asset_vol = ret["Asset Return"].std() * np.sqrt(annual_factor)
-        rf = st.number_input("Annual risk-free rate (%)", min_value=0.0, max_value=20.0, value=5.0, step=0.25) / 100
+        rf = st.number_input(
+            "Annual risk-free rate (%)",
+            min_value=0.0, max_value=20.0, value=5.0, step=0.25,
+            key="v25_rf"
+        ) / 100
         daily_rf = (1 + rf) ** (1 / annual_factor) - 1
 
-        beta = np.nan
-        alpha = np.nan
-        corr = np.nan
-        r2 = np.nan
-        tracking_error = np.nan
-        information_ratio = np.nan
+        beta = alpha = corr = r2 = tracking_error = information_ratio = np.nan
         if has_benchmark:
             pair = ret.dropna(subset=["Benchmark Return"])
             if len(pair) > 1 and pair["Benchmark Return"].var() > 0:
                 beta = pair["Asset Return"].cov(pair["Benchmark Return"]) / pair["Benchmark Return"].var()
                 corr = pair["Asset Return"].corr(pair["Benchmark Return"])
                 r2 = corr ** 2 if np.isfinite(corr) else np.nan
-                alpha_daily = pair["Asset Return"].mean() - rf / annual_factor - beta * (pair["Benchmark Return"].mean() - rf / annual_factor)
+                alpha_daily = pair["Asset Return"].mean() - daily_rf - beta * (pair["Benchmark Return"].mean() - daily_rf)
                 alpha = (1 + alpha_daily) ** annual_factor - 1
                 active = pair["Asset Return"] - pair["Benchmark Return"]
                 tracking_error = active.std() * np.sqrt(annual_factor)
                 information_ratio = active.mean() / active.std() * np.sqrt(annual_factor) if active.std() > 0 else np.nan
 
+        asset_mean = ret["Asset Return"].mean()
+        asset_std = ret["Asset Return"].std()
+        asset_vol = asset_std * np.sqrt(annual_factor)
         downside = ret.loc[ret["Asset Return"] < daily_rf, "Asset Return"] - daily_rf
-        downside_dev = downside.std() * np.sqrt(annual_factor) if len(downside) > 1 else np.nan
-        sharpe = ((asset_mean - daily_rf) / ret["Asset Return"].std() * np.sqrt(annual_factor)) if ret["Asset Return"].std() > 0 else np.nan
-        sortino = ((asset_mean - daily_rf) / (downside.std()) * np.sqrt(annual_factor)) if len(downside) > 1 and downside.std() > 0 else np.nan
+        sharpe = ((asset_mean - daily_rf) / asset_std * np.sqrt(annual_factor)) if asset_std > 0 else np.nan
+        sortino = ((asset_mean - daily_rf) / downside.std() * np.sqrt(annual_factor)) if len(downside) > 1 and downside.std() > 0 else np.nan
         treynor = ((asset_mean * annual_factor - rf) / beta) if np.isfinite(beta) and beta != 0 else np.nan
         var_95 = ret["Asset Return"].quantile(0.05)
         cvar_95 = ret.loc[ret["Asset Return"] <= var_95, "Asset Return"].mean()
@@ -3941,14 +3940,44 @@ elif page == "Ratio Analysis":
         drawdown = wealth / wealth.cummax() - 1
         max_drawdown = drawdown.min()
 
+        st.markdown("### 📈 Market Performance")
         mk1, mk2, mk3, mk4 = st.columns(4)
         mk1.metric("Alpha", f"{alpha*100:.2f}%" if np.isfinite(alpha) else "N/A")
         mk2.metric("Beta", f"{beta:.2f}" if np.isfinite(beta) else "N/A")
         mk3.metric("R²", f"{r2:.2f}" if np.isfinite(r2) else "N/A")
         mk4.metric("Sharpe", f"{sharpe:.2f}" if np.isfinite(sharpe) else "N/A")
 
+        # Normalized performance: both series start at 100.
+        perf = market[["Date", "Asset Price"]].copy()
+        perf["Asset"] = perf["Asset Price"] / perf["Asset Price"].iloc[0] * 100
+        if has_benchmark:
+            bench = market["Benchmark Price"].dropna()
+            if len(bench):
+                perf["Benchmark"] = market["Benchmark Price"] / bench.iloc[0] * 100
+
+        fig_perf = go.Figure()
+        fig_perf.add_trace(go.Scatter(x=perf["Date"], y=perf["Asset"], mode="lines", name="Asset"))
+        if has_benchmark:
+            fig_perf.add_trace(go.Scatter(x=perf["Date"], y=perf["Benchmark"], mode="lines", name="Benchmark"))
+        chart_layout(fig_perf, height=380)
+        fig_perf.update_yaxes(title_text="Indexed performance")
+        fig_perf.update_xaxes(title_text="Date")
+        st.plotly_chart(fig_perf, use_container_width=True)
+
+        # Drawdown chart.
+        dd = pd.DataFrame({"Date": ret["Date"], "Drawdown": drawdown.values})
+        fig_dd = go.Figure()
+        fig_dd.add_trace(go.Scatter(
+            x=dd["Date"], y=dd["Drawdown"] * 100,
+            mode="lines", name="Drawdown", fill="tozeroy"
+        ))
+        chart_layout(fig_dd, height=300)
+        fig_dd.update_yaxes(title_text="Drawdown (%)")
+        fig_dd.update_xaxes(title_text="Date")
+        st.plotly_chart(fig_dd, use_container_width=True)
+
         market_metrics = pd.DataFrame([
-            ["Alpha", f"{alpha*100:.2f}%" if np.isfinite(alpha) else "N/A", "Risk-adjusted excess return vs benchmark"],
+            ["Alpha", f"{alpha*100:.2f}%" if np.isfinite(alpha) else "N/A", "Annualized risk-adjusted excess return vs benchmark"],
             ["Beta", f"{beta:.2f}" if np.isfinite(beta) else "N/A", "Sensitivity to benchmark"],
             ["R / Correlation", f"{corr:.2f}" if np.isfinite(corr) else "N/A", "Asset vs benchmark correlation"],
             ["R²", f"{r2:.2f}" if np.isfinite(r2) else "N/A", "Variance explained by benchmark"],
@@ -3963,16 +3992,113 @@ elif page == "Ratio Analysis":
         ], columns=["Metric", "Value", "Interpretation"])
         st.dataframe(market_metrics, use_container_width=True, hide_index=True)
 
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=market["Date"], y=market["Asset Price"], mode="lines", name="Asset"))
-        if has_benchmark:
-            bench_norm = market["Benchmark Price"] / market["Benchmark Price"].dropna().iloc[0] * market["Asset Price"].dropna().iloc[0]
-            fig.add_trace(go.Scatter(x=market["Date"], y=bench_norm, mode="lines", name="Benchmark (normalized)"))
-        chart_layout(fig, height=340)
-        st.plotly_chart(fig, use_container_width=True)
-
     # --------------------------------------------------------
     # TECHNICAL ANALYTICS
+    # --------------------------------------------------------
+    with tabs[4]:
+        st.markdown("### 📊 Technical Analytics")
+        if market.empty:
+            st.info("Upload market price history to unlock technical charts.")
+        else:
+            tech = market.copy().sort_values("Date")
+            price = tech["Asset Price"].astype(float)
+
+            tech["SMA 20"] = price.rolling(20).mean()
+            tech["SMA 50"] = price.rolling(50).mean()
+
+            delta = price.diff()
+            gain = delta.clip(lower=0).rolling(14).mean()
+            loss = (-delta.clip(upper=0)).rolling(14).mean()
+            rs = gain / loss.replace(0, np.nan)
+            tech["RSI 14"] = 100 - (100 / (1 + rs))
+
+            ema12 = price.ewm(span=12, adjust=False).mean()
+            ema26 = price.ewm(span=26, adjust=False).mean()
+            tech["MACD"] = ema12 - ema26
+            tech["Signal"] = tech["MACD"].ewm(span=9, adjust=False).mean()
+
+            mid = price.rolling(20).mean()
+            std = price.rolling(20).std()
+            tech["Upper BB"] = mid + 2 * std
+            tech["Lower BB"] = mid - 2 * std
+
+            high = float(price.max())
+            low = float(price.min())
+            diff = high - low
+            fib_levels = [
+                ("0.0%", high),
+                ("23.6%", high - 0.236 * diff),
+                ("38.2%", high - 0.382 * diff),
+                ("50.0%", high - 0.500 * diff),
+                ("61.8%", high - 0.618 * diff),
+                ("78.6%", high - 0.786 * diff),
+                ("100.0%", low),
+            ]
+
+            latest = tech.iloc[-1]
+            t1, t2, t3, t4 = st.columns(4)
+            t1.metric("Latest Price", f"{latest['Asset Price']:,.2f}")
+            t2.metric("RSI 14", "N/A" if pd.isna(latest["RSI 14"]) else f"{latest['RSI 14']:.1f}")
+            t3.metric("SMA 20", "N/A" if pd.isna(latest["SMA 20"]) else f"{latest['SMA 20']:,.2f}")
+            t4.metric("SMA 50", "N/A" if pd.isna(latest["SMA 50"]) else f"{latest['SMA 50']:,.2f}")
+
+            # Price + moving averages + Bollinger Bands.
+            fig_price = go.Figure()
+            fig_price.add_trace(go.Scatter(x=tech["Date"], y=tech["Asset Price"], mode="lines", name="Price"))
+            fig_price.add_trace(go.Scatter(x=tech["Date"], y=tech["SMA 20"], mode="lines", name="SMA 20"))
+            fig_price.add_trace(go.Scatter(x=tech["Date"], y=tech["SMA 50"], mode="lines", name="SMA 50"))
+            fig_price.add_trace(go.Scatter(x=tech["Date"], y=tech["Upper BB"], mode="lines", name="Upper BB"))
+            fig_price.add_trace(go.Scatter(x=tech["Date"], y=tech["Lower BB"], mode="lines", name="Lower BB"))
+            chart_layout(fig_price, height=420)
+            fig_price.update_yaxes(title_text="Price")
+            fig_price.update_xaxes(title_text="Date")
+            st.plotly_chart(fig_price, use_container_width=True)
+
+            # RSI.
+            fig_rsi = go.Figure()
+            fig_rsi.add_trace(go.Scatter(x=tech["Date"], y=tech["RSI 14"], mode="lines", name="RSI 14"))
+            fig_rsi.add_hline(y=70, line_dash="dash", annotation_text="Overbought 70")
+            fig_rsi.add_hline(y=30, line_dash="dash", annotation_text="Oversold 30")
+            chart_layout(fig_rsi, height=280)
+            fig_rsi.update_yaxes(title_text="RSI", range=[0, 100])
+            fig_rsi.update_xaxes(title_text="Date")
+            st.plotly_chart(fig_rsi, use_container_width=True)
+
+            # MACD.
+            fig_macd = go.Figure()
+            fig_macd.add_trace(go.Scatter(x=tech["Date"], y=tech["MACD"], mode="lines", name="MACD"))
+            fig_macd.add_trace(go.Scatter(x=tech["Date"], y=tech["Signal"], mode="lines", name="Signal"))
+            chart_layout(fig_macd, height=280)
+            fig_macd.update_yaxes(title_text="MACD")
+            fig_macd.update_xaxes(title_text="Date")
+            st.plotly_chart(fig_macd, use_container_width=True)
+
+            # Fibonacci levels over the price series.
+            fig_fib = go.Figure()
+            fig_fib.add_trace(go.Scatter(x=tech["Date"], y=tech["Asset Price"], mode="lines", name="Price"))
+            for level, value in fib_levels:
+                fig_fib.add_hline(y=value, annotation_text=f"Fib {level}", line_dash="dot")
+            chart_layout(fig_fib, height=420)
+            fig_fib.update_yaxes(title_text="Price")
+            fig_fib.update_xaxes(title_text="Date")
+            st.plotly_chart(fig_fib, use_container_width=True)
+
+            st.markdown("### Fibonacci Levels")
+            st.dataframe(
+                pd.DataFrame(fib_levels, columns=["Level", "Price"]),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            # Simple support/resistance reference levels from rolling extrema.
+            support = float(price.rolling(20).min().iloc[-1])
+            resistance = float(price.rolling(20).max().iloc[-1])
+            sr1, sr2 = st.columns(2)
+            sr1.metric("20-Day Support", f"{support:,.2f}")
+            sr2.metric("20-Day Resistance", f"{resistance:,.2f}")
+
+            st.caption("Technical indicators are analytical tools, not investment recommendations. The market series used here is separate from the ERP dataset.")
+
     # --------------------------------------------------------
     with tabs[4]:
         st.markdown("### Technical Analytics")
