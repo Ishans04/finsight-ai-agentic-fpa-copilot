@@ -1069,63 +1069,206 @@ elif page == "Budget vs Actuals":
 
 
 # ============================================================
-# FORECASTING
+# FORECASTING & PLANNING
 # ============================================================
 elif page == "Forecasting & Planning":
     st.subheader("Forecasting & Planning")
-    st.caption("Revenue forecast using historical trend plus recent growth trajectory.")
+    st.caption("Integrated FP&A view: Actuals → Budget → Forecast → Latest Estimate, with management scenarios.")
 
-    monthly = view.copy()
-    monthly["Month"] = pd.to_datetime(monthly["Date"]).dt.to_period("M").dt.to_timestamp()
-    monthly = monthly.groupby("Month", as_index=False)["Revenue USD"].sum().sort_values("Month")
+    plan = view.copy()
+    plan["Month"] = pd.to_datetime(plan["Date"], errors="coerce").dt.to_period("M").dt.to_timestamp()
+    plan = plan.dropna(subset=["Month"])
 
-    if len(monthly) < 3:
+    if len(plan) < 3:
         st.warning("At least three monthly periods are required for forecasting.")
     else:
-        x = np.arange(len(monthly)).reshape(-1, 1)
-        y = monthly["Revenue USD"].values
-        model = LinearRegression().fit(x, y)
+        # V3 management metrics are repeated on transaction rows. Build one monthly
+        # management layer without double-counting Gross Profit / EBITDA / PAT / Cash.
+        monthly = plan.groupby("Month", as_index=False).agg(
+            Revenue=("Revenue USD", "sum"),
+            Cost_Budget=("Budget USD", "sum"),
+            Actual_Cost=("Actual USD", "sum"),
+        ).sort_values("Month")
 
-        horizon = st.slider("Forecast horizon (months)", 3, 12, 6)
-        future_x = np.arange(len(monthly), len(monthly) + horizon).reshape(-1, 1)
-        trend_forecast = model.predict(future_x)
+        if "Cost Type" in plan.columns:
+            cogs = plan.loc[plan["Cost Type"].eq("COGS")].groupby("Month")["Actual USD"].sum()
+            opex = plan.loc[plan["Cost Type"].eq("Opex")].groupby("Month")["Actual USD"].sum()
+            monthly["COGS"] = monthly["Month"].map(cogs).fillna(0.0)
+            monthly["Opex"] = monthly["Month"].map(opex).fillna(0.0)
+        else:
+            monthly["COGS"] = monthly["Actual_Cost"] * 0.40
+            monthly["Opex"] = monthly["Actual_Cost"] * 0.60
 
-        recent_growth = monthly["Revenue USD"].pct_change().replace([np.inf, -np.inf], np.nan).dropna()
-        avg_growth = recent_growth.tail(6).mean() if len(recent_growth) else 0
-        base = trend_forecast * (1 + avg_growth * 0.35)
-        optimistic = base * 1.05
-        downside = base * 0.95
+        monthly["Gross_Profit"] = monthly["Revenue"] - monthly["COGS"]
+        monthly["EBITDA"] = monthly["Gross_Profit"] - monthly["Opex"]
+        monthly["PAT"] = monthly["EBITDA"] - monthly["Revenue"] * 0.04
+
+        if "Gross Profit" in plan.columns:
+            gp = plan.groupby("Month")["Gross Profit"].first()
+            monthly["Gross_Profit"] = monthly["Month"].map(gp).fillna(monthly["Gross_Profit"])
+        if "EBITDA" in plan.columns:
+            eb = plan.groupby("Month")["EBITDA"].first()
+            monthly["EBITDA"] = monthly["Month"].map(eb).fillna(monthly["EBITDA"])
+        if "PAT" in plan.columns:
+            pat_s = plan.groupby("Month")["PAT"].first()
+            monthly["PAT"] = monthly["Month"].map(pat_s).fillna(monthly["PAT"])
+        if "Closing Cash" in plan.columns:
+            cash_s = plan.groupby("Month")["Closing Cash"].first()
+            monthly["Cash"] = monthly["Month"].map(cash_s)
+        else:
+            monthly["Cash"] = (monthly["Revenue"] - monthly["Actual_Cost"]).cumsum()
+
+        # Planning controls.
+        ctl1, ctl2, ctl3, ctl4 = st.columns(4)
+        with ctl1:
+            horizon = st.slider("Forecast horizon (months)", 3, 12, 6)
+        with ctl2:
+            revenue_adj = st.slider("Revenue assumption", -15, 20, 0, 1, format="%d%%")
+        with ctl3:
+            cost_adj = st.slider("Cost assumption", -15, 20, 0, 1, format="%d%%")
+        with ctl4:
+            scenario = st.selectbox("Planning scenario", ["Base", "Upside", "Downside", "Latest Estimate"])
+
+        # Forecast engine: linear trend blended with recent growth trajectory.
+        def forecast_series(series, horizon_value):
+            clean = pd.to_numeric(series, errors="coerce").replace([np.inf, -np.inf], np.nan).fillna(0.0).astype(float)
+            x = np.arange(len(clean), dtype=float).reshape(-1, 1)
+            model = LinearRegression().fit(x, clean.values)
+            future_x = np.arange(len(clean), len(clean) + horizon_value, dtype=float).reshape(-1, 1)
+            trend = model.predict(future_x)
+            growth = clean.pct_change().replace([np.inf, -np.inf], np.nan).dropna()
+            recent_growth = float(growth.tail(6).mean()) if len(growth) else 0.0
+            recent_growth = float(np.clip(recent_growth, -0.15, 0.15))
+            last = float(clean.iloc[-1])
+            trajectory = np.array([last * ((1 + recent_growth) ** (i + 1)) for i in range(horizon_value)])
+            return np.maximum(0.0, trend * 0.65 + trajectory * 0.35), recent_growth
+
+        revenue_base, revenue_growth = forecast_series(monthly["Revenue"], horizon)
+        cost_base, cost_growth = forecast_series(monthly["Actual_Cost"], horizon)
+
+        # Management assumptions are deliberately explicit and adjustable.
+        revenue_base = revenue_base * (1 + revenue_adj / 100)
+        cost_base = cost_base * (1 + cost_adj / 100)
+
+        # Preserve the latest observed gross-profit structure as the operating margin base.
+        latest_gm = float(monthly["Gross_Profit"].iloc[-1] / monthly["Revenue"].iloc[-1]) if monthly["Revenue"].iloc[-1] else 0.0
+        latest_ebitda_margin = float(monthly["EBITDA"].iloc[-1] / monthly["Revenue"].iloc[-1]) if monthly["Revenue"].iloc[-1] else 0.0
+        latest_pat_margin = float(monthly["PAT"].iloc[-1] / monthly["Revenue"].iloc[-1]) if monthly["Revenue"].iloc[-1] else 0.0
+        cogs_ratio = float(monthly["COGS"].iloc[-1] / monthly["Revenue"].iloc[-1]) if monthly["Revenue"].iloc[-1] else 0.0
+
+        # Base operating model; scenario overlays change revenue/cost, not accounting logic.
+        base_revenue = revenue_base
+        base_cost = cost_base
+        if scenario == "Upside":
+            rev = base_revenue * 1.05
+            cost = base_cost * 0.97
+        elif scenario == "Downside":
+            rev = base_revenue * 0.95
+            cost = base_cost * 1.05
+        else:
+            rev = base_revenue.copy()
+            cost = base_cost.copy()
+
+        cogs_f = rev * cogs_ratio
+        gross_f = rev - cogs_f
+        opex_f = np.maximum(0.0, cost - cogs_f)
+        ebitda_f = gross_f - opex_f
+        pat_f = ebitda_f - rev * max(0.0, 0.04)
+
+        # Latest Estimate is the explicit management case: latest actual run-rate plus assumptions.
+        if scenario == "Latest Estimate":
+            rev = base_revenue * (1 + revenue_growth * 0.25)
+            cost = base_cost * (1 + cost_growth * 0.25)
+            cogs_f = rev * cogs_ratio
+            gross_f = rev - cogs_f
+            opex_f = np.maximum(0.0, cost - cogs_f)
+            ebitda_f = gross_f - opex_f
+            pat_f = ebitda_f - rev * max(0.0, 0.04)
 
         future_dates = pd.date_range(
-            monthly["Month"].max() + pd.offsets.MonthBegin(1),
-            periods=horizon,
-            freq="MS",
+            monthly["Month"].max() + pd.offsets.MonthBegin(1), periods=horizon, freq="MS"
         )
 
         forecast = pd.DataFrame({
             "Month": future_dates,
-            "Base": base,
-            "Optimistic": optimistic,
-            "Downside": downside,
+            "Revenue": rev,
+            "Cost Budget": np.repeat(float(monthly["Cost_Budget"].tail(3).mean()), horizon),
+            "Forecast Cost": cost,
+            "Gross Profit": gross_f,
+            "EBITDA": ebitda_f,
+            "PAT": pat_f,
         })
+        forecast["EBITDA Margin %"] = np.where(forecast["Revenue"] != 0, forecast["EBITDA"] / forecast["Revenue"] * 100, 0)
+        forecast["PAT Margin %"] = np.where(forecast["Revenue"] != 0, forecast["PAT"] / forecast["Revenue"] * 100, 0)
+        forecast["Cost vs Budget"] = forecast["Forecast Cost"] - forecast["Cost Budget"]
 
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=monthly["Month"], y=monthly["Revenue USD"], mode="lines+markers", name="Historical"))
-        fig.add_trace(go.Scatter(x=forecast["Month"], y=forecast["Base"], mode="lines+markers", name="Base"))
-        fig.add_trace(go.Scatter(x=forecast["Month"], y=forecast["Optimistic"], mode="lines", name="Optimistic"))
-        fig.add_trace(go.Scatter(x=forecast["Month"], y=forecast["Downside"], mode="lines", name="Downside"))
-        chart_layout(fig)
-        st.plotly_chart(fig, use_container_width=True)
+        # KPI strip.
+        k1, k2, k3, k4, k5 = st.columns(5)
+        k1.metric("Next Period Revenue", money_usd(forecast["Revenue"].iloc[0]))
+        k2.metric("Forecast EBITDA", money_usd(forecast["EBITDA"].sum()))
+        k3.metric("EBITDA Margin", pct(forecast["EBITDA"].sum() / forecast["Revenue"].sum() * 100 if forecast["Revenue"].sum() else 0))
+        k4.metric("Forecast PAT", money_usd(forecast["PAT"].sum()))
+        k5.metric("Forecast Horizon", f"{horizon} months")
 
-        a, b, c = st.columns(3)
-        a.metric("Historical Avg Growth", pct(avg_growth * 100))
-        b.metric("Next Period Base", money_usd(base[0]))
-        c.metric("Forecast Horizon", f"{horizon} months")
+        tab1, tab2, tab3 = st.tabs(["📈 Financial Outlook", "🎯 Budget vs Forecast", "🧮 Management Scenarios"])
+
+        with tab1:
+            st.subheader("Revenue & Profitability Outlook")
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=monthly["Month"], y=monthly["Revenue"], mode="lines+markers", name="Historical Revenue"))
+            fig.add_trace(go.Scatter(x=forecast["Month"], y=forecast["Revenue"], mode="lines+markers", name=f"{scenario} Revenue"))
+            fig.add_trace(go.Scatter(x=forecast["Month"], y=forecast["EBITDA"], mode="lines+markers", name="Forecast EBITDA"))
+            fig.add_trace(go.Scatter(x=forecast["Month"], y=forecast["PAT"], mode="lines", name="Forecast PAT"))
+            chart_layout(fig, height=390)
+            fig.update_yaxes(tickprefix="$", tickformat="~s")
+            st.plotly_chart(fig, use_container_width=True)
+
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Recent Revenue Growth", pct(revenue_growth * 100))
+            m2.metric("Current EBITDA Margin", pct(latest_ebitda_margin * 100))
+            m3.metric("Current PAT Margin", pct(latest_pat_margin * 100))
+
+        with tab2:
+            st.subheader("Cost Budget vs Forecast")
+            fig2 = go.Figure()
+            fig2.add_trace(go.Bar(x=forecast["Month"], y=forecast["Cost Budget"], name="Cost Budget"))
+            fig2.add_trace(go.Bar(x=forecast["Month"], y=forecast["Forecast Cost"], name="Forecast Cost"))
+            chart_layout(fig2, height=360)
+            fig2.update_yaxes(tickprefix="$", tickformat="~s")
+            st.plotly_chart(fig2, use_container_width=True)
+
+            unfavorable = forecast["Cost vs Budget"].sum()
+            if unfavorable > 0:
+                st.warning(f"Forecast cost is {money_usd(unfavorable)} above the planning budget across the selected horizon.")
+            else:
+                st.success(f"Forecast cost is {money_usd(abs(unfavorable))} below the planning budget across the selected horizon.")
+
+        with tab3:
+            st.subheader("Scenario Impact")
+            base_rev_total = float(base_revenue.sum())
+            base_ebitda_total = float((base_revenue * (1 - cogs_ratio) - np.maximum(0.0, base_cost - base_revenue * cogs_ratio)).sum())
+            scenario_table = pd.DataFrame([
+                ["Base", base_rev_total, base_ebitda_total, base_ebitda_total / base_rev_total * 100 if base_rev_total else 0],
+                ["Upside", float((base_revenue * 1.05).sum()), float(ebitda_f.sum()) if scenario == "Upside" else float((base_revenue * 1.05 * (1-cogs_ratio) - np.maximum(0.0, base_cost*0.97 - base_revenue*1.05*cogs_ratio)).sum()), 0],
+                ["Downside", float((base_revenue * 0.95).sum()), float((base_revenue*0.95*(1-cogs_ratio) - np.maximum(0.0, base_cost*1.05 - base_revenue*0.95*cogs_ratio)).sum()), 0],
+            ], columns=["Scenario", "Revenue", "EBITDA", "EBITDA Margin %"])
+            scenario_table["EBITDA Margin %"] = np.where(scenario_table["Revenue"] != 0, scenario_table["EBITDA"] / scenario_table["Revenue"] * 100, 0)
+            scenario_display = scenario_table.copy()
+            scenario_display["Revenue"] = scenario_display["Revenue"].map(money_usd)
+            scenario_display["EBITDA"] = scenario_display["EBITDA"].map(money_usd)
+            scenario_display["EBITDA Margin %"] = scenario_table["EBITDA Margin %"].map(pct)
+            st.dataframe(scenario_display, use_container_width=True, hide_index=True)
+            st.info("Scenario assumptions are transparent planning overlays. They are not historical actuals and should be reviewed before management use.")
 
         display = forecast.copy()
-        for c in ["Base", "Optimistic", "Downside"]:
+        for c in ["Revenue", "Cost Budget", "Forecast Cost", "Gross Profit", "EBITDA", "PAT", "Cost vs Budget"]:
             display[c] = display[c].map(money_usd)
+        display["EBITDA Margin %"] = forecast["EBITDA Margin %"].map(pct)
+        display["PAT Margin %"] = forecast["PAT Margin %"].map(pct)
+        st.subheader("Forecast Detail")
         st.dataframe(display, use_container_width=True, hide_index=True)
+
+        st.caption("Forecasting is a portfolio/prototype planning model based on historical ERP trends and explicit assumptions; it is not a production statistical forecast or management-approved plan.")
 
 
 # ============================================================
