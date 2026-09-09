@@ -3033,26 +3033,52 @@ elif page == "Cost Intelligence":
 # ============================================================
 elif page == "Autonomous AI CFO":
     st.subheader("🧠 Autonomous AI CFO")
-    st.caption("Proactive financial monitoring prototype: detect material signals, quantify impact and route approved findings into management actions.")
-    st.info("The scan runs against the current ERP view when the page is loaded or refreshed. High-priority findings can be governed and routed into the persistent AI CFO Action Center. Production autonomy would add scheduled jobs, live ERP feeds and governed notifications.")
+    st.caption("Proactive FP&A monitoring: Detect → Explain → Recommend → Route → Track.")
+    st.info(
+        "This prototype performs an on-demand CFO scan against the loaded ERP view. "
+        "It can detect material exceptions, quantify financial impact, generate recommendations "
+        "and route approved findings to the AI CFO Action Center. Production autonomy would add "
+        "scheduled execution, live ERP feeds and governed notifications."
+    )
+
+    # Persistent scan history for the current Streamlit session.
+    if "cfo_scan_history_v27" not in st.session_state:
+        st.session_state["cfo_scan_history_v27"] = []
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        materiality_pct = st.slider("Variance materiality", 0.5, 10.0, 2.0, 0.5, format="%.1f%%", key="auto_materiality_v17")
+        materiality_pct = st.slider(
+            "Variance materiality", 0.5, 10.0, 2.0, 0.5,
+            format="%.1f%%", key="auto_materiality_v27"
+        )
     with c2:
-        anomaly_trigger = st.number_input("Anomaly trigger", 1, 500, 5, 1, key="auto_anomaly_v17")
+        anomaly_trigger = st.number_input(
+            "Anomaly trigger", 1, 500, 5, 1, key="auto_anomaly_v27"
+        )
     with c3:
-        action_mode = st.selectbox("Action mode", ["Review before creating", "Auto-draft critical actions"], key="auto_action_mode_v17")
+        action_mode = st.selectbox(
+            "Action governance",
+            ["Review before routing", "Auto-draft critical actions"],
+            key="auto_action_mode_v27"
+        )
     with c4:
-        scan_scope = st.selectbox("Scan scope", ["Current filtered view", "Full loaded dataset"], key="auto_scan_scope_v17")
+        scan_scope = st.selectbox(
+            "Scan scope",
+            ["Current filtered view", "Full loaded dataset"],
+            key="auto_scan_scope_v27"
+        )
+
+    run_scan = st.button("🔎 Run CFO Scan Now", type="primary", use_container_width=True)
 
     scan_df = df.copy() if scan_scope == "Full loaded dataset" else view.copy()
     if scan_df.empty:
         st.warning("No records are available for the selected scan scope.")
         st.stop()
+
     for col in ["Budget USD", "Actual USD", "Revenue USD", "Variance USD", "Anomaly Flag"]:
         if col in scan_df.columns:
             scan_df[col] = pd.to_numeric(scan_df[col], errors="coerce").fillna(0.0)
+
     scan_budget = float(scan_df.get("Budget USD", pd.Series(dtype=float)).sum())
     scan_actual = float(scan_df.get("Actual USD", pd.Series(dtype=float)).sum())
     scan_variance = scan_actual - scan_budget
@@ -3060,47 +3086,133 @@ elif page == "Autonomous AI CFO":
     scan_anomalies = int(scan_df.get("Anomaly Flag", pd.Series(dtype=float)).sum())
 
     findings = []
+
     if scan_budget and scan_variance > 0 and scan_variance_pct >= materiality_pct:
-        findings.append({"Priority": "High" if scan_variance_pct >= materiality_pct * 2 else "Medium", "Signal": "Material cost variance", "Area": "Cost Control", "Impact": money_usd(scan_variance), "Metric": f"{scan_variance_pct:.2f}% above budget", "Why": "Sustained unfavorable cost movement can compress EBITDA and cash conversion.", "Recommendation": "Investigate the largest unfavorable regions, departments and cost categories and validate the driver against forecast.", "Owner": "Finance Controller", "Action": "Review material cost variance and root causes"})
+        findings.append({
+            "Priority": "High" if scan_variance_pct >= materiality_pct * 2 else "Medium",
+            "Signal": "Material cost variance",
+            "Area": "Cost Control",
+            "Impact": money_usd(scan_variance),
+            "Metric": f"{scan_variance_pct:.2f}% above budget",
+            "Why": "Unfavorable cost movement can compress EBITDA and reduce forecast headroom.",
+            "Recommendation": "Investigate the largest unfavorable regions, departments and cost categories and reconcile the driver to forecast.",
+            "Owner": "Finance Controller",
+            "Action": "Review material cost variance and root causes",
+        })
+
     if scan_anomalies >= anomaly_trigger:
-        exposure = float(scan_df.loc[scan_df["Anomaly Flag"] > 0, "Variance USD"].abs().sum()) if "Variance USD" in scan_df.columns else 0.0
-        findings.append({"Priority": "High", "Signal": "Anomaly concentration", "Area": "Risk & Controls", "Impact": money_usd(exposure) if exposure else f"{scan_anomalies:,} transactions", "Metric": f"{scan_anomalies:,} flagged transactions", "Why": "Unusual transactions may indicate posting, control, classification or spend-management issues.", "Recommendation": "Prioritize the highest-value flagged transactions and document investigation outcomes.", "Owner": "Controller", "Action": "Investigate high-value anomaly transactions"})
+        exposure = (
+            float(scan_df.loc[scan_df["Anomaly Flag"] > 0, "Variance USD"].abs().sum())
+            if "Variance USD" in scan_df.columns else 0.0
+        )
+        findings.append({
+            "Priority": "High",
+            "Signal": "Anomaly concentration",
+            "Area": "Risk & Controls",
+            "Impact": money_usd(exposure) if exposure else f"{scan_anomalies:,} transactions",
+            "Metric": f"{scan_anomalies:,} flagged transactions",
+            "Why": "Unusual transactions may indicate posting, classification, control or spend-management issues.",
+            "Recommendation": "Prioritize the highest-value flagged transactions and document investigation outcomes.",
+            "Owner": "Controller",
+            "Action": "Investigate high-value anomaly transactions",
+        })
 
     if "Region" in scan_df.columns and "Variance USD" in scan_df.columns:
-        reg = scan_df.groupby("Region", as_index=False).agg(Budget=("Budget USD", "sum"), Variance=("Variance USD", "sum"))
+        reg = scan_df.groupby("Region", as_index=False).agg(
+            Budget=("Budget USD", "sum"), Variance=("Variance USD", "sum")
+        )
         if not reg.empty:
             r = reg.assign(Abs=reg["Variance"].abs()).sort_values("Abs", ascending=False).iloc[0]
             rp = abs(float(r["Variance"])) / float(r["Budget"]) * 100 if float(r["Budget"]) else 0
             if float(r["Variance"]) > 0 and rp >= materiality_pct:
-                findings.append({"Priority": "High" if rp >= materiality_pct * 2 else "Medium", "Signal": "Regional variance hotspot", "Area": "Regional Performance", "Impact": money_usd(float(r["Variance"])), "Metric": f"{r['Region']} · {rp:.2f}% above budget", "Why": "A concentrated regional variance can indicate a localized operational or planning issue.", "Recommendation": f"Investigate {r['Region']} at department and cost-category level and reconcile the driver to the operating plan.", "Owner": "Regional Finance", "Action": f"Investigate {r['Region']} variance hotspot"})
+                findings.append({
+                    "Priority": "High" if rp >= materiality_pct * 2 else "Medium",
+                    "Signal": "Regional variance hotspot",
+                    "Area": "Regional Performance",
+                    "Impact": money_usd(float(r["Variance"])),
+                    "Metric": f"{r['Region']} · {rp:.2f}% above budget",
+                    "Why": "A concentrated regional variance can indicate a localized operating or planning issue.",
+                    "Recommendation": f"Investigate {r['Region']} at department and cost-category level and reconcile the driver to the operating plan.",
+                    "Owner": "Regional Finance",
+                    "Action": f"Investigate {r['Region']} variance hotspot",
+                })
 
-    cat_col = "Cost Category" if "Cost Category" in scan_df.columns else None
-    if cat_col and "Variance USD" in scan_df.columns:
-        cat = scan_df.groupby(cat_col, as_index=False).agg(Budget=("Budget USD", "sum"), Variance=("Variance USD", "sum"))
+    if "Cost Category" in scan_df.columns and "Variance USD" in scan_df.columns:
+        cat = scan_df.groupby("Cost Category", as_index=False).agg(
+            Budget=("Budget USD", "sum"), Variance=("Variance USD", "sum")
+        )
         if not cat.empty:
             x = cat.assign(Abs=cat["Variance"].abs()).sort_values("Abs", ascending=False).iloc[0]
             cp = abs(float(x["Variance"])) / float(x["Budget"]) * 100 if float(x["Budget"]) else 0
             if float(x["Variance"]) > 0 and cp >= materiality_pct:
-                findings.append({"Priority": "High" if cp >= materiality_pct * 2 else "Medium", "Signal": "Cost-category hotspot", "Area": "Cost Intelligence", "Impact": money_usd(float(x["Variance"])), "Metric": f"{x[cat_col]} · {cp:.2f}% above budget", "Why": "A concentrated cost-category variance can affect forecast accuracy and operating margin.", "Recommendation": f"Drill into {x[cat_col]} by region, department, GL and transaction to identify the controllable driver.", "Owner": "FP&A", "Action": f"Investigate {x[cat_col]} cost hotspot"})
+                findings.append({
+                    "Priority": "High" if cp >= materiality_pct * 2 else "Medium",
+                    "Signal": "Cost-category hotspot",
+                    "Area": "Cost Intelligence",
+                    "Impact": money_usd(float(x["Variance"])),
+                    "Metric": f"{x['Cost Category']} · {cp:.2f}% above budget",
+                    "Why": "A concentrated cost-category variance can affect forecast accuracy and operating margin.",
+                    "Recommendation": f"Drill into {x['Cost Category']} by region, department, GL and transaction to identify the controllable driver.",
+                    "Owner": "FP&A",
+                    "Action": f"Investigate {x['Cost Category']} cost hotspot",
+                })
 
     if not findings:
-        findings.append({"Priority": "Low", "Signal": "No material exception", "Area": "Financial Health", "Impact": "Monitoring", "Metric": "Within configured thresholds", "Why": "No monitored signal exceeded the configured thresholds.", "Recommendation": "Continue routine monitoring and review the forecast as new ERP periods close.", "Owner": "FP&A", "Action": "Continue routine CFO monitoring"})
-
-    high = sum(x["Priority"] == "High" for x in findings)
-    critical = sum(x["Priority"] == "High" and x["Area"] in ["Cost Control", "Risk & Controls"] for x in findings)
-    k1,k2,k3,k4=st.columns(4)
-    k1.metric("Signals Detected", len(findings)); k2.metric("High Priority", high); k3.metric("Critical Route Candidates", critical); k4.metric("Anomalies in Scope", f"{scan_anomalies:,}")
-
-    st.markdown("### CFO Monitoring Feed")
+        findings.append({
+            "Priority": "Low",
+            "Signal": "No material exception",
+            "Area": "Financial Health",
+            "Impact": "Monitoring",
+            "Metric": "Within configured thresholds",
+            "Why": "No monitored signal exceeded the configured thresholds.",
+            "Recommendation": "Continue routine monitoring and review the forecast as new ERP periods close.",
+            "Owner": "FP&A",
+            "Action": "Continue routine CFO monitoring",
+        })
 
     high_findings = [f for f in findings if f["Priority"] == "High" and f["Signal"] != "No material exception"]
+    high = sum(f["Priority"] == "High" for f in findings)
+    critical = sum(
+        f["Priority"] == "High" and f["Area"] in ["Cost Control", "Risk & Controls"]
+        for f in findings
+    )
+
+    # Record a scan when the user explicitly runs it; also show the latest live result.
+    if run_scan:
+        import datetime as _dt
+        st.session_state["cfo_scan_history_v27"].append({
+            "Timestamp": _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "Scope": scan_scope,
+            "Variance": scan_variance,
+            "Variance %": scan_variance_pct,
+            "Anomalies": scan_anomalies,
+            "Signals": len(findings),
+            "High Priority": high,
+        })
+        st.success("CFO scan completed and recorded in the monitoring history.")
+
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Signals Detected", len(findings))
+    k2.metric("High Priority", high)
+    k3.metric("Critical Route Candidates", critical)
+    k4.metric("Anomalies in Scope", f"{scan_anomalies:,}")
+
+    # Executive status banner.
+    if high_findings:
+        st.error(
+            f"🚨 CFO Alert: {len(high_findings)} high-priority signal(s) require management review."
+        )
+    else:
+        st.success("🟢 CFO Monitor: No high-priority exception is above the configured threshold.")
+
+    st.markdown("### CFO Monitoring Feed")
 
     if action_mode == "Auto-draft critical actions" and high_findings:
         st.warning(
             f"{len(high_findings)} high-priority signal(s) are eligible for governed action drafting. "
-            "Review the findings below before routing them."
+            "Routing still creates trackable actions; consequential decisions remain under management control."
         )
-        if st.button("⚡ Route All High-Priority Signals to Action Center", key="route_all_v21"):
+        if st.button("⚡ Route All High-Priority Signals", key="route_all_v27"):
             routed = 0
             already_open = 0
             for f in high_findings:
@@ -3125,7 +3237,7 @@ elif page == "Autonomous AI CFO":
     for i, f in enumerate(findings):
         icon = "🔴" if f["Priority"] == "High" else "🟠" if f["Priority"] == "Medium" else "🟢"
         with st.expander(f"{icon} {f['Priority']} · {f['Signal']} · {f['Area']}", expanded=(i == 0)):
-            a,b=st.columns(2)
+            a, b = st.columns(2)
             with a:
                 st.write(f"**Financial impact:** {f['Impact']}")
                 st.write(f"**Signal:** {f['Metric']}")
@@ -3135,12 +3247,10 @@ elif page == "Autonomous AI CFO":
                 st.write(f"**Owner:** {f['Owner']}")
                 st.write(f"**Proposed action:** {f['Action']}")
             if f["Priority"] == "High":
-                if action_mode == "Auto-draft critical actions":
-                    st.caption("Governed routing is enabled: review the finding, then use the route-all control or route this signal individually.")
-                if st.button("🎯 Route to AI CFO Action Center", key=f"auto_route_{i}"):
-                    created=create_cfo_action(
-                        f["Priority"],f["Area"],f["Signal"],f["Impact"],
-                        f["Recommendation"],f["Owner"]
+                if st.button("🎯 Route to AI CFO Action Center", key=f"auto_route_v27_{i}"):
+                    created = create_cfo_action(
+                        f["Priority"], f["Area"], f["Signal"], f["Impact"],
+                        f["Recommendation"], f["Owner"]
                     )
                     if created:
                         log_cfo_event(
@@ -3151,10 +3261,41 @@ elif page == "Autonomous AI CFO":
                     else:
                         st.info("An open management action for this signal already exists.")
 
+    st.markdown("### Monitoring History")
+    history = pd.DataFrame(st.session_state["cfo_scan_history_v27"])
+    if history.empty:
+        st.info("No scans recorded yet. Click **Run CFO Scan Now** to create the first monitoring checkpoint.")
+    else:
+        st.dataframe(history.tail(20), use_container_width=True, hide_index=True)
+        if len(history) >= 2:
+            fig_scan = go.Figure()
+            fig_scan.add_trace(go.Scatter(
+                x=history["Timestamp"], y=history["Variance %"],
+                mode="lines+markers", name="Variance %"
+            ))
+            fig_scan.add_trace(go.Scatter(
+                x=history["Timestamp"], y=history["Signals"],
+                mode="lines+markers", name="Signals"
+            ))
+            chart_layout(fig_scan, height=320)
+            fig_scan.update_yaxes(title_text="Value")
+            st.plotly_chart(fig_scan, use_container_width=True)
+
     st.markdown("### CFO Scan Summary")
-    st.write(f"The monitored view contains **{money_usd(scan_actual)} actual cost** against **{money_usd(scan_budget)} budget**, a net variance of **{money_usd(scan_variance)} ({scan_variance_pct:.2f}%)**.")
-    st.write(f"The scan identified **{len(findings)} management signal(s)** and **{scan_anomalies:,} anomaly flag(s)** under the configured thresholds.")
-    st.caption("Autonomous AI CFO is a prototype decision-support layer. It detects and routes signals; human approval remains appropriate before consequential management actions.")
+    st.write(
+        f"The monitored view contains **{money_usd(scan_actual)} actual cost** against "
+        f"**{money_usd(scan_budget)} budget**, a net variance of "
+        f"**{money_usd(scan_variance)} ({scan_variance_pct:.2f}%)**."
+    )
+    st.write(
+        f"The scan identified **{len(findings)} management signal(s)** and "
+        f"**{scan_anomalies:,} anomaly flag(s)** under the configured thresholds."
+    )
+    st.caption(
+        "Autonomous AI CFO is a prototype decision-support layer. It performs proactive analysis "
+        "when invoked; scheduled execution, live ERP connectivity and governed notifications are "
+        "required for production-grade continuous autonomy."
+    )
 
 
 # ============================================================
