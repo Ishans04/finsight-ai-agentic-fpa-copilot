@@ -1047,126 +1047,235 @@ def _v22_ratio_analysis(view):
 
     with tabs[3]:
         st.subheader("Market Analytics")
-        st.warning("Market analytics require a separate market-price dataset. ERP financial transactions are not used as a substitute.")
+        st.info("Market analytics use a separate market-price dataset. ERP financial transactions are not used as a substitute.")
         uploaded_market = st.file_uploader(
             "Upload Market Price CSV",
             type=["csv"],
-            key="v22_market_csv",
-            help="Expected fields: Date, Asset/Price, and optionally Benchmark.",
+            key="v26_market_csv",
+            help="Expected fields: Date, Asset Price/Price/Close, and optionally Benchmark Price.",
         )
+
         if uploaded_market is not None:
             market = pd.read_csv(uploaded_market)
-            date_col = _v22_col(market, ["Date", "date"])
-            price_col = _v22_col(market, ["Price", "Close", "Adj Close", "Asset Price"])
-            benchmark_col = _v22_col(market, ["Benchmark", "Benchmark Price", "Index", "Benchmark Close"])
+            market.columns = [str(c).strip() for c in market.columns]
+            date_col = _v22_col(market, ["Date", "date", "Datetime", "Timestamp"])
+            price_col = _v22_col(market, ["Asset Price", "Price", "Close", "Adj Close"])
+            # IMPORTANT: prefer the numeric benchmark-price field before a text benchmark-name field.
+            benchmark_col = _v22_col(market, ["Benchmark Price", "Benchmark Close", "Index Price", "Benchmark", "Index"])
+
             if not date_col or not price_col:
-                st.error("Market CSV needs Date and Price/Close columns.")
+                st.error("Market CSV needs Date and Asset Price/Price/Close columns.")
             else:
                 market[date_col] = pd.to_datetime(market[date_col], errors="coerce")
                 market[price_col] = pd.to_numeric(market[price_col], errors="coerce")
                 market = market.dropna(subset=[date_col, price_col]).sort_values(date_col).copy()
-                market["Asset Return"] = market[price_col].pct_change()
-                if benchmark_col:
-                    market[benchmark_col] = pd.to_numeric(market[benchmark_col], errors="coerce")
-                    market["Benchmark Return"] = market[benchmark_col].pct_change()
-                    aligned = market[["Asset Return", "Benchmark Return"]].dropna()
-                    if len(aligned) >= 2:
-                        cov = aligned["Asset Return"].cov(aligned["Benchmark Return"])
-                        var_b = aligned["Benchmark Return"].var()
-                        beta = cov / var_b if var_b else np.nan
-                        corr = aligned["Asset Return"].corr(aligned["Benchmark Return"])
-                        r2 = corr ** 2 if pd.notna(corr) else np.nan
-                        rf = 0.0
-                        active = aligned["Asset Return"] - aligned["Benchmark Return"]
-                        alpha_period = aligned["Asset Return"].mean() - beta * aligned["Benchmark Return"].mean() - rf
-                        vol = aligned["Asset Return"].std() * np.sqrt(252)
-                        sharpe = (aligned["Asset Return"].mean() / aligned["Asset Return"].std()) * np.sqrt(252) if aligned["Asset Return"].std() else np.nan
-                        downside = aligned.loc[aligned["Asset Return"] < 0, "Asset Return"].std()
-                        sortino = (aligned["Asset Return"].mean() / downside) * np.sqrt(252) if downside and pd.notna(downside) else np.nan
-                        tracking = active.std()
-                        info_ratio = active.mean() / tracking * np.sqrt(252) if tracking else np.nan
-                        wealth = (1 + aligned["Asset Return"]).cumprod()
-                        max_dd = (wealth / wealth.cummax() - 1).min()
-                        st.dataframe(pd.DataFrame([
-                            ["Alpha (period)", f"{alpha_period:.4%}"],
-                            ["Beta", f"{beta:.3f}"],
-                            ["R / Correlation", f"{corr:.3f}"],
-                            ["R²", f"{r2:.3f}"],
-                            ["Annualized Volatility", f"{vol:.1%}"],
-                            ["Sharpe", "N/A" if pd.isna(sharpe) else f"{sharpe:.2f}"],
-                            ["Sortino", "N/A" if pd.isna(sortino) else f"{sortino:.2f}"],
-                            ["Information Ratio", "N/A" if pd.isna(info_ratio) else f"{info_ratio:.2f}"],
-                            ["Maximum Drawdown", f"{max_dd:.1%}"],
-                        ], columns=["Market Metric", "Value"]), use_container_width=True, hide_index=True)
-                    else:
-                        st.info("Need at least two aligned return observations for benchmark analytics.")
-                else:
-                    st.info("Upload a Benchmark/Index price column to calculate Alpha, Beta, R and R².")
-        else:
-            st.caption("Upload a market CSV above to activate Alpha, Beta, correlation, risk-adjusted returns and drawdown analytics.")
 
+                # If the detected benchmark column is text (e.g. a benchmark name),
+                # try the numeric Benchmark Price column explicitly.
+                if benchmark_col:
+                    numeric_benchmark = pd.to_numeric(market[benchmark_col], errors="coerce")
+                    if numeric_benchmark.notna().sum() < 2 and "Benchmark Price" in market.columns:
+                        benchmark_col = "Benchmark Price"
+                        numeric_benchmark = pd.to_numeric(market[benchmark_col], errors="coerce")
+                    market["__BenchmarkPrice"] = numeric_benchmark
+                else:
+                    market["__BenchmarkPrice"] = np.nan
+
+                market["Asset Return"] = market[price_col].pct_change()
+                market["Benchmark Return"] = market["__BenchmarkPrice"].pct_change()
+
+                # Keep the uploaded market dataset available to Technical Analytics.
+                st.session_state["finsight_market_data"] = market.copy()
+                st.session_state["finsight_market_date_col"] = date_col
+                st.session_state["finsight_market_price_col"] = price_col
+
+        else:
+            market = st.session_state.get("finsight_market_data", pd.DataFrame())
+            date_col = st.session_state.get("finsight_market_date_col", "Date")
+            price_col = st.session_state.get("finsight_market_price_col", "Asset Price")
+
+        if not market.empty and "Asset Return" in market.columns:
+            has_benchmark = market["Benchmark Return"].notna().sum() >= 2
+            aligned = market[["Asset Return", "Benchmark Return"]].dropna()
+            ret = market.dropna(subset=["Asset Return"]).copy()
+
+            asset_std = ret["Asset Return"].std()
+            asset_vol = asset_std * np.sqrt(252) if pd.notna(asset_std) else np.nan
+            sharpe = ret["Asset Return"].mean() / asset_std * np.sqrt(252) if asset_std and asset_std > 0 else np.nan
+
+            beta = corr = r2 = alpha = info_ratio = np.nan
+            if has_benchmark and len(aligned) >= 2:
+                bvar = aligned["Benchmark Return"].var()
+                if bvar > 0:
+                    beta = aligned["Asset Return"].cov(aligned["Benchmark Return"]) / bvar
+                    corr = aligned["Asset Return"].corr(aligned["Benchmark Return"])
+                    r2 = corr ** 2 if pd.notna(corr) else np.nan
+                    alpha = (aligned["Asset Return"].mean() - beta * aligned["Benchmark Return"].mean()) * 252
+                active = aligned["Asset Return"] - aligned["Benchmark Return"]
+                info_ratio = active.mean() / active.std() * np.sqrt(252) if active.std() > 0 else np.nan
+
+            downside = ret.loc[ret["Asset Return"] < 0, "Asset Return"].std()
+            sortino = ret["Asset Return"].mean() / downside * np.sqrt(252) if downside and downside > 0 else np.nan
+            treynor = (ret["Asset Return"].mean() * 252) / beta if pd.notna(beta) and beta != 0 else np.nan
+            var95 = ret["Asset Return"].quantile(0.05)
+            cvar95 = ret.loc[ret["Asset Return"] <= var95, "Asset Return"].mean()
+            wealth = (1 + ret["Asset Return"]).cumprod()
+            drawdown = wealth / wealth.cummax() - 1
+
+            st.markdown("### 📈 Market Performance")
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Alpha", f"{alpha:.2%}" if pd.notna(alpha) else "N/A")
+            c2.metric("Beta", f"{beta:.2f}" if pd.notna(beta) else "N/A")
+            c3.metric("R²", f"{r2:.2f}" if pd.notna(r2) else "N/A")
+            c4.metric("Sharpe", f"{sharpe:.2f}" if pd.notna(sharpe) else "N/A")
+
+            perf = market[[date_col, price_col]].copy()
+            perf["Asset"] = perf[price_col] / perf[price_col].iloc[0] * 100
+            if has_benchmark:
+                b = market["__BenchmarkPrice"]
+                first_valid = b.dropna()
+                if len(first_valid):
+                    perf["Benchmark"] = b / first_valid.iloc[0] * 100
+
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=perf[date_col], y=perf["Asset"], mode="lines", name="Asset"))
+            if "Benchmark" in perf:
+                fig.add_trace(go.Scatter(x=perf[date_col], y=perf["Benchmark"], mode="lines", name="Benchmark"))
+            chart_layout(fig, height=390)
+            fig.update_yaxes(title_text="Indexed Performance")
+            fig.update_xaxes(title_text="Date")
+            st.plotly_chart(fig, use_container_width=True)
+
+            dd = pd.DataFrame({"Date": ret[date_col], "Drawdown": drawdown.values})
+            fig_dd = go.Figure()
+            fig_dd.add_trace(go.Scatter(x=dd["Date"], y=dd["Drawdown"] * 100, mode="lines", name="Drawdown", fill="tozeroy"))
+            chart_layout(fig_dd, height=300)
+            fig_dd.update_yaxes(title_text="Drawdown (%)")
+            fig_dd.update_xaxes(title_text="Date")
+            st.plotly_chart(fig_dd, use_container_width=True)
+
+            metrics = pd.DataFrame([
+                ["Alpha", f"{alpha:.2%}" if pd.notna(alpha) else "N/A", "Annualized active return after beta adjustment"],
+                ["Beta", f"{beta:.2f}" if pd.notna(beta) else "N/A", "Sensitivity to benchmark"],
+                ["R / Correlation", f"{corr:.2f}" if pd.notna(corr) else "N/A", "Relationship with benchmark"],
+                ["R²", f"{r2:.2f}" if pd.notna(r2) else "N/A", "Benchmark variance explained"],
+                ["Sharpe Ratio", f"{sharpe:.2f}" if pd.notna(sharpe) else "N/A", "Return per unit of total risk"],
+                ["Sortino Ratio", f"{sortino:.2f}" if pd.notna(sortino) else "N/A", "Return per unit of downside risk"],
+                ["Treynor Ratio", f"{treynor:.2f}" if pd.notna(treynor) else "N/A", "Return per unit of systematic risk"],
+                ["Information Ratio", f"{info_ratio:.2f}" if pd.notna(info_ratio) else "N/A", "Active return per tracking error"],
+                ["Annualized Volatility", f"{asset_vol:.2%}" if pd.notna(asset_vol) else "N/A", "Annualized return volatility"],
+                ["VaR 95%", f"{var95:.2%}", "5th percentile one-period return"],
+                ["CVaR 95%", f"{cvar95:.2%}", "Average return in worst 5%"],
+                ["Maximum Drawdown", f"{drawdown.min():.2%}", "Peak-to-trough decline"],
+            ], columns=["Market Metric", "Value", "Interpretation"])
+            st.dataframe(metrics, use_container_width=True, hide_index=True)
+        else:
+            st.warning("Upload the demo market CSV to activate Market Analytics.")
+            st.caption("Expected columns: Date, Asset Price, Benchmark Price.")
     with tabs[4]:
         st.subheader("Technical Analytics")
-        st.warning("Technical indicators require chronological market-price data and are intentionally separated from ERP accounting data.")
-        # Reuse the uploaded market file from the previous tab when available in Streamlit session.
-        # The uploader is scoped to this run; users can upload it again here if needed.
+        st.info("Technical indicators use chronological market-price data and are intentionally separated from ERP accounting data.")
+
         tech_file = st.file_uploader(
-            "Upload Price CSV for Technical Analysis",
+            "Upload Price CSV for Technical Analysis (optional if Market CSV is loaded)",
             type=["csv"],
-            key="v22_tech_csv",
-            help="Expected fields: Date and Price/Close.",
+            key="v26_tech_csv",
+            help="You can upload a separate price file, or use the Market CSV already uploaded in Market Analytics.",
         )
+
         if tech_file is not None:
             tech = pd.read_csv(tech_file)
-            dcol = _v22_col(tech, ["Date", "date"])
-            pcol = _v22_col(tech, ["Price", "Close", "Adj Close"])
+            tech.columns = [str(c).strip() for c in tech.columns]
+            dcol = _v22_col(tech, ["Date", "date", "Datetime", "Timestamp"])
+            pcol = _v22_col(tech, ["Asset Price", "Price", "Close", "Adj Close"])
             if not dcol or not pcol:
-                st.error("Technical CSV needs Date and Price/Close columns.")
+                st.error("Technical CSV needs Date and Asset Price/Price/Close columns.")
+                tech = pd.DataFrame()
             else:
                 tech[dcol] = pd.to_datetime(tech[dcol], errors="coerce")
                 tech[pcol] = pd.to_numeric(tech[pcol], errors="coerce")
                 tech = tech.dropna(subset=[dcol, pcol]).sort_values(dcol).copy()
-                price = tech[pcol]
-                tech["SMA 20"] = price.rolling(20).mean()
-                tech["SMA 50"] = price.rolling(50).mean()
-                delta = price.diff()
-                gain = delta.clip(lower=0).rolling(14).mean()
-                loss = (-delta.clip(upper=0)).rolling(14).mean()
-                rs = gain / loss.replace(0, np.nan)
-                tech["RSI 14"] = 100 - (100 / (1 + rs))
-                ema12 = price.ewm(span=12, adjust=False).mean()
-                ema26 = price.ewm(span=26, adjust=False).mean()
-                tech["MACD"] = ema12 - ema26
-                tech["Signal"] = tech["MACD"].ewm(span=9, adjust=False).mean()
-                mid = price.rolling(20).mean()
-                std = price.rolling(20).std()
-                tech["Upper BB"] = mid + 2 * std
-                tech["Lower BB"] = mid - 2 * std
+        else:
+            tech = st.session_state.get("finsight_market_data", pd.DataFrame()).copy()
+            dcol = st.session_state.get("finsight_market_date_col", "Date")
+            pcol = st.session_state.get("finsight_market_price_col", "Asset Price")
 
-                high = price.max()
-                low = price.min()
-                diff = high - low
-                fib = pd.DataFrame([
-                    ["0.0%", high],
-                    ["23.6%", high - 0.236 * diff],
-                    ["38.2%", high - 0.382 * diff],
-                    ["50.0%", high - 0.500 * diff],
-                    ["61.8%", high - 0.618 * diff],
-                    ["78.6%", high - 0.786 * diff],
-                    ["100.0%", low],
-                ], columns=["Fibonacci Level", "Price"])
+        if not tech.empty and dcol in tech.columns and pcol in tech.columns:
+            price = pd.to_numeric(tech[pcol], errors="coerce")
+            tech["SMA 20"] = price.rolling(20).mean()
+            tech["SMA 50"] = price.rolling(50).mean()
 
-                latest = tech.iloc[-1]
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Latest Price", f"{_v22_num(latest[pcol]):,.2f}")
-                c2.metric("RSI 14", "N/A" if pd.isna(latest["RSI 14"]) else f"{latest['RSI 14']:.1f}")
-                c3.metric("MACD", "N/A" if pd.isna(latest["MACD"]) else f"{latest['MACD']:.2f}")
+            delta = price.diff()
+            gain = delta.clip(lower=0).rolling(14).mean()
+            loss = (-delta.clip(upper=0)).rolling(14).mean()
+            rs = gain / loss.replace(0, np.nan)
+            tech["RSI 14"] = 100 - (100 / (1 + rs))
 
-                chart_cols = [pcol, "SMA 20", "SMA 50", "Upper BB", "Lower BB"]
-                st.line_chart(tech.set_index(dcol)[chart_cols], use_container_width=True)
-                st.markdown("### Fibonacci Retracement")
-                st.dataframe(fib, use_container_width=True, hide_index=True)
-                st.caption("Fibonacci levels use the observed high/low in the uploaded price series; they are analytical reference levels, not forecasts.")
+            ema12 = price.ewm(span=12, adjust=False).mean()
+            ema26 = price.ewm(span=26, adjust=False).mean()
+            tech["MACD"] = ema12 - ema26
+            tech["Signal"] = tech["MACD"].ewm(span=9, adjust=False).mean()
+
+            mid = price.rolling(20).mean()
+            std = price.rolling(20).std()
+            tech["Upper BB"] = mid + 2 * std
+            tech["Lower BB"] = mid - 2 * std
+
+            high = float(price.max())
+            low = float(price.min())
+            diff = high - low
+            fib = [
+                ("0.0%", high), ("23.6%", high - .236*diff), ("38.2%", high - .382*diff),
+                ("50.0%", high - .500*diff), ("61.8%", high - .618*diff),
+                ("78.6%", high - .786*diff), ("100.0%", low)
+            ]
+
+            latest = tech.iloc[-1]
+            a,b,c,d = st.columns(4)
+            a.metric("Latest Price", f"{price.iloc[-1]:,.2f}")
+            b.metric("RSI 14", "N/A" if pd.isna(latest["RSI 14"]) else f"{latest['RSI 14']:.1f}")
+            c.metric("SMA 20", "N/A" if pd.isna(latest["SMA 20"]) else f"{latest['SMA 20']:,.2f}")
+            d.metric("SMA 50", "N/A" if pd.isna(latest["SMA 50"]) else f"{latest['SMA 50']:,.2f}")
+
+            fig_price = go.Figure()
+            fig_price.add_trace(go.Scatter(x=tech[dcol], y=tech[pcol], mode="lines", name="Price"))
+            fig_price.add_trace(go.Scatter(x=tech[dcol], y=tech["SMA 20"], mode="lines", name="SMA 20"))
+            fig_price.add_trace(go.Scatter(x=tech[dcol], y=tech["SMA 50"], mode="lines", name="SMA 50"))
+            fig_price.add_trace(go.Scatter(x=tech[dcol], y=tech["Upper BB"], mode="lines", name="Upper BB"))
+            fig_price.add_trace(go.Scatter(x=tech[dcol], y=tech["Lower BB"], mode="lines", name="Lower BB"))
+            chart_layout(fig_price, height=420)
+            fig_price.update_yaxes(title_text="Price")
+            fig_price.update_xaxes(title_text="Date")
+            st.plotly_chart(fig_price, use_container_width=True)
+
+            fig_rsi = go.Figure()
+            fig_rsi.add_trace(go.Scatter(x=tech[dcol], y=tech["RSI 14"], mode="lines", name="RSI 14"))
+            fig_rsi.add_hline(y=70, line_dash="dash", annotation_text="70 Overbought")
+            fig_rsi.add_hline(y=30, line_dash="dash", annotation_text="30 Oversold")
+            chart_layout(fig_rsi, height=280)
+            fig_rsi.update_yaxes(title_text="RSI", range=[0,100])
+            st.plotly_chart(fig_rsi, use_container_width=True)
+
+            fig_macd = go.Figure()
+            fig_macd.add_trace(go.Scatter(x=tech[dcol], y=tech["MACD"], mode="lines", name="MACD"))
+            fig_macd.add_trace(go.Scatter(x=tech[dcol], y=tech["Signal"], mode="lines", name="Signal"))
+            chart_layout(fig_macd, height=280)
+            fig_macd.update_yaxes(title_text="MACD")
+            st.plotly_chart(fig_macd, use_container_width=True)
+
+            fig_fib = go.Figure()
+            fig_fib.add_trace(go.Scatter(x=tech[dcol], y=tech[pcol], mode="lines", name="Price"))
+            for level, value in fib:
+                fig_fib.add_hline(y=value, line_dash="dot", annotation_text=f"Fib {level}")
+            chart_layout(fig_fib, height=420)
+            fig_fib.update_yaxes(title_text="Price")
+            st.plotly_chart(fig_fib, use_container_width=True)
+
+            st.markdown("### Fibonacci Retracement")
+            st.dataframe(pd.DataFrame(fib, columns=["Level", "Price"]), use_container_width=True, hide_index=True)
+            st.caption("Technical indicators are analytical reference tools, not investment recommendations.")
+        else:
+            st.warning("Upload the market CSV in Market Analytics first, or upload a price CSV here.")
 
 
 if page == "Executive Dashboard":
