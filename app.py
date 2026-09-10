@@ -3151,7 +3151,10 @@ elif page == "Cost Intelligence":
     with s1:
         st.metric("Estimated Addressable Opportunity", money_usd(total_opportunity))
         if total_actual:
-            st.metric("Opportunity / Actual Cost", pct(total_opportunity / total_actual * 100))
+            opportunity_pct = (total_opportunity / total_actual) * 100
+            # Keep two decimals here because the opportunity is small relative to total cost;
+            # one-decimal formatting incorrectly rounds this meaningful ratio to 0.0%.
+            st.metric("Opportunity / Actual Cost", f"{opportunity_pct:.2f}%")
     with s2:
         if not savings.empty:
             fig = px.bar(savings.head(8), x="Addressable Opportunity", y="Cost Category", orientation="h", title="Priority Savings Opportunities")
