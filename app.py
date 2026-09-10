@@ -1030,8 +1030,9 @@ def chart_layout(fig, height=370):
             font=dict(size=16, color="#EAF2FF"),
         )
     else:
-        # Explicitly remove any empty/undefined title object.
-        layout["title"] = None
+        # Plotly can render a null title as the literal word "undefined" in
+        # some front-end combinations. Use an explicit empty title instead.
+        layout["title"] = dict(text="")
 
     fig.update_layout(**layout)
     return fig
