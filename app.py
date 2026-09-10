@@ -2911,21 +2911,54 @@ elif page == "Cost Intelligence":
 
     # CFO summary cards
     k1, k2, k3, k4 = st.columns(4)
+    variance_pct = (total_variance / total_budget * 100) if total_budget else 0.0
+
     k1.metric("Actual Cost", money_usd(total_actual))
     k2.metric("Budget", money_usd(total_budget))
-    k3.metric("Net Variance", money_usd(total_variance), delta=pct(total_variance / total_budget * 100) if total_budget else "0.0%")
+    # Cost variance is inverse: a positive variance is unfavorable, so show it red.
+    # Keep two decimals so small material variances are not misleadingly displayed as 0.0%.
+    k3.metric(
+        "Net Variance",
+        money_usd(total_variance),
+        delta=f"{variance_pct:+.2f}%",
+        delta_color="inverse",
+    )
     k4.metric("Unfavorable Exposure", money_usd(total_unfav))
 
     st.markdown("### Cost Driver Analysis")
     left, right = st.columns(2)
     with left:
         driver = cost.sort_values("Variance", ascending=True).copy()
-        fig = px.bar(driver, x="Variance", y="Cost Category", orientation="h", title="Budget vs Actual Variance")
+        driver["Status"] = np.where(
+            driver["Variance"] > 0, "Unfavorable",
+            np.where(driver["Variance"] < 0, "Favorable", "On Budget"),
+        )
+        fig = px.bar(
+            driver,
+            x="Variance",
+            y="Cost Category",
+            orientation="h",
+            color="Status",
+            color_discrete_map={
+                "Unfavorable": "#ef4444",
+                "Favorable": "#22c55e",
+                "On Budget": "#64748b",
+            },
+            title="Budget vs Actual Variance",
+            hover_data={"Variance": ":$,.0f", "Status": True},
+        )
         chart_layout(fig)
         st.plotly_chart(fig, use_container_width=True)
     with right:
         mix = cost.sort_values("Actual", ascending=False).copy()
-        fig = px.bar(mix, x="Actual", y="Cost Category", orientation="h", title="Actual Cost by Category")
+        fig = px.bar(
+            mix,
+            x="Actual",
+            y="Cost Category",
+            orientation="h",
+            title="Actual Cost by Category",
+            hover_data={"Actual": ":$,.0f"},
+        )
         chart_layout(fig)
         st.plotly_chart(fig, use_container_width=True)
 
