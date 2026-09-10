@@ -988,23 +988,25 @@ variance_pct = variance / budget * 100 if budget else 0
 
 
 def chart_layout(fig, height=370):
+    # Keep chart titles and horizontal legends in separate rows.
+    # The previous y=0.90 legend position placed legends over the plot.
     fig.update_layout(
         template="plotly_dark",
         height=height,
         paper_bgcolor="#0A1020",
         plot_bgcolor="#0A1020",
-        margin=dict(l=24, r=24, t=82, b=48),
+        margin=dict(l=72, r=92, t=112, b=58),
         title=dict(
             x=0.02,
             xanchor="left",
-            y=0.98,
+            y=0.99,
             yanchor="top",
             font=dict(size=16, color="#EAF2FF"),
         ),
         legend=dict(
             orientation="h",
-            yanchor="top",
-            y=0.90,
+            yanchor="bottom",
+            y=1.01,
             x=0.02,
             xanchor="left",
             font=dict(size=11, color="#9FB0C7"),
