@@ -988,27 +988,26 @@ variance_pct = variance / budget * 100 if budget else 0
 
 
 def chart_layout(fig, height=370):
-    # Keep chart titles and horizontal legends in separate rows.
-    # The previous y=0.90 legend position placed legends over the plot.
-    fig.update_layout(
+    # Safe shared Plotly layout: never create an empty title (which renders as
+    # the literal word "undefined"). Preserve titles supplied by Plotly Express.
+    existing_title = None
+    try:
+        existing_title = fig.layout.title.text if fig.layout.title else None
+    except Exception:
+        existing_title = None
+
+    layout = dict(
         template="plotly_dark",
         height=height,
         paper_bgcolor="#0A1020",
         plot_bgcolor="#0A1020",
-        margin=dict(l=72, r=92, t=112, b=58),
-        title=dict(
-            x=0.02,
-            xanchor="left",
-            y=0.99,
-            yanchor="top",
-            font=dict(size=16, color="#EAF2FF"),
-        ),
+        margin=dict(l=72, r=92, t=105, b=58),
         legend=dict(
             orientation="h",
             yanchor="bottom",
-            y=1.01,
-            x=0.02,
-            xanchor="left",
+            y=1.045,
+            x=0.5,
+            xanchor="center",
             font=dict(size=11, color="#9FB0C7"),
             bgcolor="rgba(0,0,0,0)",
         ),
@@ -1021,6 +1020,20 @@ def chart_layout(fig, height=370):
         xaxis=dict(gridcolor="#18253A", zerolinecolor="#263650"),
         yaxis=dict(gridcolor="#18253A", zerolinecolor="#263650"),
     )
+    if existing_title:
+        layout["title"] = dict(
+            text=existing_title,
+            x=0.02,
+            xanchor="left",
+            y=0.99,
+            yanchor="top",
+            font=dict(size=16, color="#EAF2FF"),
+        )
+    else:
+        # Explicitly remove any empty/undefined title object.
+        layout["title"] = None
+
+    fig.update_layout(**layout)
     return fig
 
 
@@ -1521,7 +1534,7 @@ if page == "Executive Dashboard":
     pulse1, pulse2, pulse3 = st.columns(3)
     with pulse1:
         if variance > 0:
-            html_block(f'<div class="danger"><b>🔴 Budget Pressure</b><br>{money_usd(variance)} unfavorable cost variance.<br><span class="small">{pct(abs(variance_pct))} of budget.</span></div>')
+            html_block(f'<div class="danger"><b>🔴 Budget Pressure</b><br>{money_usd(variance)} unfavorable cost variance.<br><span class="small">{abs(variance_pct):.2f}% of budget.</span></div>')
         else:
             html_block(f'<div class="insight"><b>🟢 Budget Performance</b><br>{money_usd(abs(variance))} favorable vs budget.<br><span class="small">Validate whether savings are sustainable.</span></div>')
     with pulse2:
