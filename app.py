@@ -114,7 +114,7 @@ def _v20_build_brief(df, actions_df=None):
         status_col = _v20_find_col(actions_df, ["Status"])
         priority_col = _v20_find_col(actions_df, ["Priority"])
         if status_col:
-            open_actions = int(~actions_df[status_col].astype(str).str.lower().eq("resolved").sum())
+            open_actions = int((~actions_df[status_col].astype(str).str.lower().eq("resolved")).sum())
         if priority_col:
             high_actions = int(actions_df[priority_col].astype(str).str.lower().isin(["high", "critical"]).sum())
 
@@ -266,136 +266,244 @@ st.set_page_config(
 )
 
 # ============================================================
-# THEME
+# THEME — FIN SIGHT AI / DARK CFO COMMAND CENTER
 # ============================================================
 st.markdown("""
 <style>
+/* ---------- Global canvas ---------- */
 .stApp {
-    background: #07111d;
-    color: #e8eef7;
+    background: radial-gradient(circle at 72% -10%, #142442 0%, #0A1020 38%, #070B14 100%);
+    color: #E8EEF8;
 }
-[data-testid="stSidebar"] {
-    background: #091522;
-    border-right: 1px solid #20364d;
+html, body, [class*="css"] {
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 .block-container {
-    padding-top: 1.2rem;
-    padding-bottom: 3rem;
-    max-width: 1500px;
+    padding-top: 1.05rem;
+    padding-bottom: 3.5rem;
+    max-width: 1540px;
 }
+
+/* ---------- Sidebar ---------- */
+[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #080E19 0%, #0A1220 55%, #080D17 100%);
+    border-right: 1px solid #1B2940;
+}
+[data-testid="stSidebar"] > div:first-child {
+    padding-top: 1rem;
+}
+[data-testid="stSidebar"] .stMarkdown h3 {
+    color: #F4F7FF;
+    letter-spacing: -0.02em;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"] label {
+    color: #9DAEC4;
+    border-radius: 9px;
+    padding: 4px 7px;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"] label:hover {
+    background: #111C30;
+    color: #F3F7FF;
+}
+[data-testid="stSidebar"] hr {
+    border-color: #1B2940;
+}
+
+/* ---------- Command-center hero ---------- */
 .hero {
-    background: linear-gradient(135deg,#123451,#0b1d30);
-    border: 1px solid #2b506e;
+    position: relative;
+    overflow: hidden;
+    background: linear-gradient(135deg, rgba(18,35,64,.98), rgba(9,17,31,.98) 62%, rgba(17,14,42,.98));
+    border: 1px solid #243754;
     border-radius: 20px;
-    padding: 28px 32px;
-    margin-bottom: 22px;
+    padding: 24px 28px;
+    margin-bottom: 18px;
+    box-shadow: 0 18px 50px rgba(0,0,0,.20), inset 0 1px 0 rgba(255,255,255,.03);
+}
+.hero:after {
+    content: "";
+    position: absolute;
+    width: 260px;
+    height: 260px;
+    right: -100px;
+    top: -130px;
+    border-radius: 50%;
+    background: rgba(83, 96, 255, .18);
+    filter: blur(28px);
 }
 .hero-title {
-    font-size: 31px;
+    position: relative;
+    z-index: 1;
+    font-size: 29px;
     font-weight: 800;
-    color: #f4f8fc;
-    margin-bottom: 7px;
+    color: #F6F8FF;
+    margin-bottom: 5px;
+    letter-spacing: -0.035em;
 }
 .hero-subtitle {
-    font-size: 15px;
-    color: #9fc1df;
+    position: relative;
+    z-index: 1;
+    font-size: 13px;
+    color: #91A4BF;
 }
 .pill {
+    position: relative;
+    z-index: 1;
     display: inline-block;
-    border: 1px solid #2f607f;
+    border: 1px solid #30486B;
     border-radius: 999px;
-    padding: 5px 11px;
-    margin-right: 7px;
+    padding: 5px 10px;
+    margin-right: 6px;
     margin-top: 12px;
-    color: #8bd8c4;
-    background: #0b2635;
-    font-size: 12px;
+    color: #9FB9FF;
+    background: rgba(33,53,88,.55);
+    font-size: 11px;
 }
+
+/* ---------- KPI / metric cards ---------- */
 .kpi {
-    background: linear-gradient(180deg,#102238,#0d1c2c);
-    border: 1px solid #284864;
-    border-radius: 16px;
-    padding: 16px 14px;
-    min-height: 126px;
+    background: linear-gradient(180deg, #101A2C, #0B1322);
+    border: 1px solid #202F49;
+    border-radius: 15px;
+    padding: 15px 14px;
+    min-height: 118px;
     overflow: hidden;
+    box-shadow: 0 10px 30px rgba(0,0,0,.13);
 }
 .kpi-label {
-    color: #91aec8;
-    font-size: 12px;
+    color: #8396B0;
+    font-size: 11px;
     font-weight: 700;
-    letter-spacing: .08em;
+    letter-spacing: .09em;
+    text-transform: uppercase;
 }
 .kpi-value {
-    color: #f7fafc;
+    color: #F5F8FF;
     font-size: 21px;
     font-weight: 800;
     margin-top: 9px;
     white-space: nowrap;
-    overflow: visible;
-    text-overflow: clip;
-    letter-spacing: -0.02em;
 }
-/* Prevent Streamlit metric values from being ellipsized inside six-column CFO KPI cards. */
+.kpi-note {
+    color: #58D9B4;
+    font-size: 11px;
+    margin-top: 7px;
+}
 [data-testid="stMetricValue"] {
-    font-size: 1.42rem !important;
+    font-size: 1.34rem !important;
     line-height: 1.15 !important;
     white-space: nowrap !important;
     overflow: visible !important;
     text-overflow: clip !important;
     min-width: 0 !important;
     letter-spacing: -0.025em !important;
-}
-[data-testid="stMetric"] {
-    min-width: 0 !important;
-    overflow: visible !important;
+    color: #F4F7FF !important;
 }
 [data-testid="stMetricLabel"] {
-    white-space: nowrap !important;
-    overflow: visible !important;
+    color: #8B9CB4 !important;
+    font-size: .72rem !important;
+    font-weight: 650 !important;
+}
+[data-testid="stMetricDelta"] {
+    font-size: .72rem !important;
+}
+[data-testid="stMetric"] {
+    background: linear-gradient(180deg, #101A2C, #0B1322);
+    border: 1px solid #202F49;
+    padding: 12px 13px;
+    border-radius: 14px;
+    min-width: 0 !important;
+    box-shadow: 0 10px 28px rgba(0,0,0,.10);
 }
 
-.kpi-note {
-    color: #54d6b1;
-    font-size: 12px;
-    margin-top: 8px;
-}
+/* ---------- Panels / alerts ---------- */
 .section-card {
-    background: #0b1827;
-    border: 1px solid #20384f;
-    border-radius: 16px;
+    background: #0C1423;
+    border: 1px solid #1C2A42;
+    border-radius: 15px;
     padding: 18px 20px;
 }
-.insight {
-    background: #0d2330;
-    border-left: 4px solid #41c7a5;
+.insight, .warning, .danger {
     padding: 13px 16px;
-    border-radius: 9px;
+    border-radius: 10px;
     margin: 7px 0;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.025);
+}
+.insight {
+    background: rgba(17,53,51,.58);
+    border: 1px solid #1C5E57;
+    border-left: 4px solid #42D7B3;
 }
 .warning {
-    background: #2a2110;
-    border-left: 4px solid #e4ad49;
-    padding: 13px 16px;
-    border-radius: 9px;
-    margin: 7px 0;
+    background: rgba(60,46,17,.60);
+    border: 1px solid #66511F;
+    border-left: 4px solid #E7B64B;
 }
 .danger {
-    background: #2b1519;
-    border-left: 4px solid #e26a75;
-    padding: 13px 16px;
-    border-radius: 9px;
-    margin: 7px 0;
+    background: rgba(64,23,31,.60);
+    border: 1px solid #6D2C39;
+    border-left: 4px solid #F06B7B;
 }
-.small {
-    color: #8ea8bd;
-    font-size: 12px;
-}
-div[data-testid="stMetric"] {
-    background: #0d1d2d;
-    border: 1px solid #20384f;
-    padding: 13px;
+.small { color: #8294AD; font-size: 11px; }
+
+/* ---------- Streamlit containers ---------- */
+div[data-testid="stExpander"] {
+    background: #0B1322;
+    border: 1px solid #1D2B43;
     border-radius: 12px;
 }
+div[data-testid="stTabs"] button {
+    color: #8497B0;
+}
+div[data-testid="stTabs"] button[aria-selected="true"] {
+    color: #F2F6FF;
+}
+[data-baseweb="select"] > div,
+[data-baseweb="input"] > div,
+[data-testid="stTextInput"] > div > div {
+    background: #0D1626 !important;
+    border-color: #253653 !important;
+}
+input, textarea {
+    color: #EAF0FA !important;
+}
+button[kind="primary"] {
+    background: linear-gradient(90deg, #4B63F5, #6956E8) !important;
+    border: 1px solid #7182FF !important;
+    color: white !important;
+}
+button[kind="secondary"] {
+    background: #101A2C !important;
+    border: 1px solid #293A57 !important;
+    color: #DCE5F3 !important;
+}
+
+/* ---------- Tables ---------- */
+[data-testid="stDataFrame"] {
+    border: 1px solid #1D2B43;
+    border-radius: 11px;
+    overflow: hidden;
+}
+[data-testid="stDataFrame"] [role="columnheader"] {
+    background: #111C30 !important;
+    color: #AFC0D7 !important;
+}
+
+/* ---------- Headings / dividers ---------- */
+h1, h2, h3, h4 {
+    color: #F0F4FB !important;
+    letter-spacing: -0.02em;
+}
+hr { border-color: #1A2940 !important; }
+
+/* ---------- Hide default Streamlit decoration ---------- */
+#MainMenu { visibility: hidden; }
+footer { visibility: hidden; }
+
+/* ---------- Scrollbar ---------- */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: #070C15; }
+::-webkit-scrollbar-thumb { background: #263754; border-radius: 999px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -883,10 +991,33 @@ def chart_layout(fig, height=370):
     fig.update_layout(
         template="plotly_dark",
         height=height,
-        paper_bgcolor="#0b1827",
-        plot_bgcolor="#0b1827",
-        margin=dict(l=20, r=20, t=45, b=20),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02),
+        paper_bgcolor="#0A1020",
+        plot_bgcolor="#0A1020",
+        margin=dict(l=24, r=24, t=82, b=48),
+        title=dict(
+            x=0.02,
+            xanchor="left",
+            y=0.98,
+            yanchor="top",
+            font=dict(size=16, color="#EAF2FF"),
+        ),
+        legend=dict(
+            orientation="h",
+            yanchor="top",
+            y=0.90,
+            x=0.02,
+            xanchor="left",
+            font=dict(size=11, color="#9FB0C7"),
+            bgcolor="rgba(0,0,0,0)",
+        ),
+        font=dict(color="#B8C6D9"),
+        hoverlabel=dict(
+            bgcolor="#111B2E",
+            bordercolor="#334563",
+            font=dict(color="#F4F7FB"),
+        ),
+        xaxis=dict(gridcolor="#18253A", zerolinecolor="#263650"),
+        yaxis=dict(gridcolor="#18253A", zerolinecolor="#263650"),
     )
     return fig
 
@@ -1703,7 +1834,7 @@ elif page == "AI CFO":
         final_budget = float(scoped4["Budget USD"].sum())
         final_actual = float(scoped4["Actual USD"].sum())
         final_variance = final_actual - final_budget
-        final_unfav = float(max(final_variance, 0))
+        final_unfav = float(scoped4["Unfavorable Variance"].sum())
         final_anomalies = int(pd.to_numeric(scoped4.get("Anomaly Flag", 0), errors="coerce").fillna(0).sum())
 
         m1, m2, m3, m4 = st.columns(4)
