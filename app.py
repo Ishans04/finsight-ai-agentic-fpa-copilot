@@ -543,6 +543,59 @@ def safe_num(series):
     return pd.to_numeric(series, errors="coerce").fillna(0)
 
 
+def fpna_variance_status(metric, variance):
+    """Classify variance using FP&A management logic.
+
+    Benefit metrics: higher is favorable.
+    Cost/expense metrics: lower is favorable.
+    """
+    if variance is None or pd.isna(variance):
+        return "N/A"
+    v=float(variance)
+    if abs(v) < 1e-12:
+        return "On Budget"
+    m=str(metric or "").strip().lower()
+    expense_terms=(
+        "cogs", "cost", "opex", "expense", "d&a", "depreciation",
+        "amortization", "interest", "finance cost", "tax", "payroll",
+        "travel", "software", "marketing", "cloud infrastructure",
+        "office & facilities", "other operating"
+    )
+    is_expense=any(term in m for term in expense_terms)
+    return "Unfavorable" if ((v > 0) if is_expense else (v < 0)) else "Favorable"
+
+
+def fpna_delta_color(status):
+    """Return Streamlit delta_color for a status label."""
+    return "inverse" if str(status) == "Unfavorable" else "normal"
+
+
+def style_fpna_status(df, status_col="Status"):
+    """Color favorable/unfavorable status and variance cells consistently."""
+    if status_col not in df.columns:
+        return df.style
+
+    def row_style(row):
+        status=str(row.get(status_col, ""))
+        if status == "Unfavorable":
+            color="#FF5C5C"
+            bg="rgba(255,92,92,.10)"
+        elif status == "Favorable":
+            color="#35D07F"
+            bg="rgba(53,208,127,.08)"
+        else:
+            return [""] * len(row)
+        styles=[]
+        for col in row.index:
+            if col in (status_col, "Variance", "Variance %"):
+                styles.append(f"color:{color};font-weight:700;background-color:{bg}")
+            else:
+                styles.append("")
+        return styles
+
+    return df.style.apply(row_style, axis=1)
+
+
 # ============================================================
 # DATA LOADING
 # ============================================================
@@ -1640,10 +1693,11 @@ if page == "Executive Dashboard":
         regional["EBITDA"] = ebitda * regional["Revenue Share"]
         regional["EBITDA Margin %"] = np.where(regional["Revenue"] != 0, regional["EBITDA"] / regional["Revenue"] * 100, 0)
         display = regional.drop(columns=["Revenue Share"]).copy()
+        display["Status"] = regional["Variance"].map(lambda x: fpna_variance_status("Cost", x))
         for c in ["Revenue", "Budget", "Actual", "Variance", "EBITDA"]:
             display[c] = display[c].map(money_usd)
         display["EBITDA Margin %"] = regional["EBITDA Margin %"].map(pct)
-        st.dataframe(display, use_container_width=True, hide_index=True)
+        st.dataframe(style_fpna_status(display), use_container_width=True, hide_index=True)
 
     cost_col, action_col = st.columns([1.15, 1])
     with cost_col:
@@ -2038,11 +2092,14 @@ elif page == "Financial Performance":
         ["PAT", mg_pat, np.nan, np.nan, np.nan],
     ], columns=["Metric", "Actual", "Budget", "Variance", "Variance %"])
 
+    pnl["Status"] = pnl.apply(
+        lambda r: fpna_variance_status(r["Metric"], r["Variance"]), axis=1
+    )
     pnl_display = pnl.copy()
     for c in ["Actual", "Budget", "Variance"]:
         pnl_display[c] = pnl[c].map(lambda x: money_usd(x) if pd.notna(x) else "N/A")
     pnl_display["Variance %"] = pnl["Variance %"].map(lambda x: pct(x) if pd.notna(x) else "N/A")
-    st.dataframe(pnl_display, use_container_width=True, hide_index=True)
+    st.dataframe(style_fpna_status(pnl_display), use_container_width=True, hide_index=True)
     st.caption("Budget comparison is available through EBITDA. The V3 source does not contain budget D&A, interest or tax assumptions, so those lines are shown as N/A rather than estimated.")
 
     st.markdown("### Profitability Trend")
@@ -2306,7 +2363,7 @@ elif page == "Budget vs Actuals":
         )
         g["Variance"] = g["Actual"] - g["Budget"]
         g["Variance %"] = np.where(g["Budget"] != 0, g["Variance"] / g["Budget"] * 100, 0.0)
-        g["Status"] = np.where(g["Variance"] > 0, "Unfavorable", "Favorable")
+        g["Status"] = g["Variance"].map(lambda x: fpna_variance_status("Cost", x))
         g = g.sort_values("Variance", ascending=False)
 
         left, right = st.columns(2)
@@ -2318,10 +2375,22 @@ elif page == "Budget vs Actuals":
             chart_layout(fig, height=390)
             st.plotly_chart(fig, use_container_width=True)
         with right:
-            var_plot = g.sort_values("Variance", ascending=True).tail(12)
-            fig2 = go.Figure()
-            fig2.add_trace(go.Bar(x=var_plot["Variance"], y=var_plot[dim], orientation="h", name="Variance"))
-            fig2.update_layout(title=f"Largest Variance Drivers — {dim}", xaxis_title="Variance")
+            var_plot = g.sort_values("Variance", ascending=True).tail(12).copy()
+            fig2 = px.bar(
+                var_plot,
+                x="Variance",
+                y=dim,
+                orientation="h",
+                color="Status",
+                color_discrete_map={
+                    "Unfavorable": "#FF5C5C",
+                    "Favorable": "#35D07F",
+                    "On Budget": "#8FA3B8",
+                },
+                title=f"Largest Variance Drivers — {dim}",
+                hover_data={"Status": True, "Variance": ":$,.0f"},
+            )
+            chart_layout(fig2)
             chart_layout(fig2, height=390)
             st.plotly_chart(fig2, use_container_width=True)
 
@@ -2337,11 +2406,23 @@ elif page == "Budget vs Actuals":
         Actual=("Actual USD", "sum"),
     )
     monthly["Variance"] = monthly["Actual"] - monthly["Budget"]
+    monthly["Status"] = monthly["Variance"].map(lambda x: fpna_variance_status("Cost", x))
 
-    fig = go.Figure()
-    fig.add_trace(go.Bar(x=monthly["Month"], y=monthly["Variance"], name="Variance"))
+    fig = px.bar(
+        monthly,
+        x="Month",
+        y="Variance",
+        color="Status",
+        color_discrete_map={
+            "Unfavorable": "#FF5C5C",
+            "Favorable": "#35D07F",
+            "On Budget": "#8FA3B8",
+        },
+        title="Monthly Cost Variance",
+        hover_data={"Status": True, "Variance": ":$,.0f"},
+    )
     fig.add_hline(y=0, line_dash="dash")
-    fig.update_layout(title="Monthly Cost Variance", xaxis_title="Month", yaxis_title="Actual − Budget")
+    fig.update_layout(xaxis_title="Month", yaxis_title="Actual − Budget")
     chart_layout(fig, height=360)
     st.plotly_chart(fig, use_container_width=True)
 
@@ -2383,7 +2464,13 @@ elif page == "Budget vs Actuals":
     with dc2:
         st.metric("Selected Actual", money_usd(drill_actual))
     with dc3:
-        st.metric("Selected Variance", money_usd(drill_var), delta="Unfavorable" if drill_var > 0 else "Favorable")
+        drill_status = fpna_variance_status("Cost", drill_var)
+        st.metric(
+            "Selected Variance",
+            money_usd(drill_var),
+            delta=drill_status,
+            delta_color=fpna_delta_color(drill_status),
+        )
 
     if not drill.empty:
         tx = drill.copy()
@@ -2391,10 +2478,11 @@ elif page == "Budget vs Actuals":
         tx = tx.sort_values("Variance", ascending=False)
         cols = [c for c in ["Transaction ID", "Date", "Region", "Department", "Cost Category", "GL Account", "Cost Center", "Budget USD", "Actual USD", "Variance"] if c in tx.columns]
         tx_display = tx[cols].head(30).copy()
+        tx_display["Status"] = tx["Variance"].head(30).map(lambda x: fpna_variance_status("Cost", x)).values
         for c in ["Budget USD", "Actual USD", "Variance"]:
             if c in tx_display.columns:
                 tx_display[c] = tx_display[c].map(money_usd)
-        st.dataframe(tx_display, use_container_width=True, hide_index=True)
+        st.dataframe(style_fpna_status(tx_display), use_container_width=True, hide_index=True)
 
         if drill_var > 0:
             issue = "Budget variance" + (f" — {selected_region}" if selected_region != "All" else "")
@@ -3742,27 +3830,31 @@ elif page == "Reports Library":
 
     st.markdown("### Management P&L")
     pnl_display = pnl.copy()
+    if "Status" not in pnl_display.columns and "Metric" in pnl_display.columns and "Variance" in pnl_display.columns:
+        pnl_display["Status"] = pnl_display.apply(lambda r: fpna_variance_status(r["Metric"], r["Variance"]), axis=1)
     for col in ["Actual", "Budget", "Variance"]:
         pnl_display[col] = pnl_display[col].apply(lambda x: money_usd(x) if isinstance(x, (int, float, np.integer, np.floating)) and np.isfinite(x) else ("N/A" if pd.isna(x) else x))
-    st.dataframe(pnl_display, use_container_width=True, hide_index=True)
+    st.dataframe(style_fpna_status(pnl_display), use_container_width=True, hide_index=True)
 
     st.markdown("### Top Variance Drivers")
     if not top_drivers.empty:
         driver_display = top_drivers.copy()
+        driver_display["Status"] = driver_display.apply(lambda r: fpna_variance_status("Cost", r["Variance"]), axis=1)
         for col in ["Budget", "Actual", "Variance"]:
             driver_display[col] = driver_display[col].apply(money_usd)
         driver_display["Variance %"] = driver_display["Variance %"].map(lambda x: f"{x:+.2f}%")
-        st.dataframe(driver_display, use_container_width=True, hide_index=True)
+        st.dataframe(style_fpna_status(driver_display), use_container_width=True, hide_index=True)
     else:
         st.info("No variance drivers available.")
 
     st.markdown("### Regional Performance")
     if not regional.empty:
         regional_display = regional.copy()
+        regional_display["Status"] = regional_display["Variance"].map(lambda x: fpna_variance_status("Cost", x))
         for col in ["Revenue", "Actual", "Budget", "Variance", "Profit"]:
             regional_display[col] = regional_display[col].apply(money_usd)
         regional_display["Margin %"] = regional_display["Margin %"].map(lambda x: f"{x:.1f}%")
-        st.dataframe(regional_display, use_container_width=True, hide_index=True)
+        st.dataframe(style_fpna_status(regional_display), use_container_width=True, hide_index=True)
 
     st.markdown("### Management Actions")
     if actions_df.empty:
