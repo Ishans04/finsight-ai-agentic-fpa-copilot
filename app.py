@@ -4138,7 +4138,7 @@ elif page == "Data Quality":
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        st.metric("Data Quality Score", f"{score:.1f}/100")
+        st.metric("Data Quality Score", f"{score:.0f}/100")
     with c2:
         st.metric("Rows Reviewed", f"{len(q):,}")
     with c3:
@@ -4147,11 +4147,11 @@ elif page == "Data Quality":
         st.metric("Control Status", status)
 
     if score >= 98:
-        st.success(f"Data Quality: {score:.1f}/100 — {status}. Dataset is ready for management reporting.")
+        st.success(f"Data Quality: {score:.0f}/100 — {status}. Dataset is ready for management reporting.")
     elif score >= 90:
-        st.info(f"Data Quality: {score:.1f}/100 — {status}. Review the exceptions below before final reporting.")
+        st.info(f"Data Quality: {score:.0f}/100 — {status}. Review the exceptions below before final reporting.")
     else:
-        st.warning(f"Data Quality: {score:.1f}/100 — {status}. Resolve material control exceptions before relying on the output.")
+        st.warning(f"Data Quality: {score:.0f}/100 — {status}. Resolve material control exceptions before relying on the output.")
 
     # ----------------------------
     # Control matrix
