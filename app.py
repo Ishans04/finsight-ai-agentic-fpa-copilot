@@ -278,28 +278,61 @@ st.markdown("""
 html, body, [class*="css"] {
     font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
+
+/* Prevent a wide child (Plotly/table/content) from horizontally shifting the
+   entire Streamlit viewport and clipping the left edge of the sidebar. */
+html, body {
+    width: 100%;
+    max-width: 100vw;
+    overflow-x: hidden !important;
+}
+.stApp {
+    width: 100%;
+    max-width: 100vw;
+    overflow-x: hidden !important;
+}
 .block-container {
+    width: 100%;
+    max-width: 1540px;
+    box-sizing: border-box;
     padding-top: 1.05rem;
     padding-bottom: 3.5rem;
-    max-width: 1540px;
 }
 
 /* ---------- Sidebar ---------- */
 [data-testid="stSidebar"] {
     background: linear-gradient(180deg, #080E19 0%, #0A1220 55%, #080D17 100%);
     border-right: 1px solid #1B2940;
+    overflow-x: hidden !important;
+    box-sizing: border-box;
 }
 [data-testid="stSidebar"] > div:first-child {
     padding-top: 1rem;
+    padding-left: 1rem !important;
+    padding-right: 0.75rem !important;
+    box-sizing: border-box;
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow-x: hidden !important;
 }
 [data-testid="stSidebar"] .stMarkdown h3 {
     color: #F4F7FF;
     letter-spacing: -0.02em;
+    margin-left: 0 !important;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"] {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin-left: 0 !important;
 }
 [data-testid="stSidebar"] [data-testid="stRadio"] label {
     color: #9DAEC4;
     border-radius: 9px;
     padding: 4px 7px;
+    margin-left: 0 !important;
+    transform: none !important;
+    box-sizing: border-box;
+    max-width: 100% !important;
 }
 [data-testid="stSidebar"] [data-testid="stRadio"] label:hover {
     background: #111C30;
