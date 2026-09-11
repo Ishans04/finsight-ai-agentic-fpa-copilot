@@ -1,192 +1,173 @@
 # 🚀 FinSight AI — Agentic FP&A & ERP Analytics Copilot
 
-> **An AI CFO prototype for FP&A and ERP analytics — designed to move finance teams from data and variance analysis toward root-cause investigation, forecasting, risk identification and management action.**
+> **An AI CFO prototype for FP&A and ERP analytics that helps transform financial data into insights, explanations, forecasts, risk signals and management actions.**
 
-**ERP Data → Financial Performance → Variance → Root Cause → Forecast → Cash → Risk → AI CFO → Action**
+**ERP Data → Analysis → Insight → Decision → Action**
 
 ---
 
-## 🌐 Live Demo
+## 🌐 Live Application
 
 🚀 **Try FinSight AI:**  
 https://finsight-ai-agentic-fpa-copilot-tzybvd6dnobwwraiwwcyjd.streamlit.app
 
-📓 **Kaggle Notebook:**  
-https://www.kaggle.com/code/isharma04/finsight-ai-agentic-fpa-copilot
-
 💻 **GitHub Repository:**  
 https://github.com/Ishans04/finsight-ai-agentic-fpa-copilot
 
+📓 **Kaggle Notebook:**  
+https://www.kaggle.com/code/isharma04/finsight-ai-agentic-fpa-copilot
+
 ---
 
-# 📌 Project Overview
+## 📌 Project Overview
 
 **FinSight AI** is an **Agentic FP&A & ERP Analytics Copilot** designed as an **AI CFO prototype**.
 
-The project demonstrates how finance, data analytics, machine learning and AI-driven reasoning can work together to transform ERP-style financial data into management-oriented insights and actions.
+The project combines **Finance, FP&A, Data Analytics, Python, SQL, Machine Learning, Data Visualization and AI-driven decision support** into a single financial analytics application.
 
-Instead of stopping at:
+FinSight is designed to help finance teams move beyond simply reporting what happened and toward understanding:
 
-> **"What happened?"**
+- What changed?
+- Why did it change?
+- Which drivers caused the movement?
+- Is the variance material?
+- What could happen next?
+- What should management look at?
+- What action should be considered?
 
-FinSight is designed to move toward:
+The core workflow is:
 
-> **"What changed?" → "Why did it change?" → "Is it material?" → "What could happen next?" → "What should management look at?"**
-
-The system combines financial analytics, FP&A logic, anomaly detection, forecasting, scenario analysis, cash and working-capital analysis, and an AI CFO decision-support layer.
+**Data → Evidence → Insight → Decision → Action**
 
 ---
 
-# 🎯 Business Problem
+## 🎯 Business Problem
 
-FP&A and finance teams often spend significant time transforming ERP and financial data into information that management can actually use.
+FP&A and finance teams frequently spend significant time transforming ERP-style financial data into information that management can actually use.
 
-Typical activities include:
+Common activities include:
 
 - Budget vs Actual analysis
-- Variance investigation
+- Variance analysis
+- Root-cause investigation
 - Cost-driver analysis
-- Revenue and profitability forecasting
+- Revenue forecasting
+- Profitability analysis
 - Cash-flow analysis
-- Working-capital monitoring
-- Financial risk identification
+- Working-capital analysis
+- Risk identification
 - Anomaly investigation
 - Management reporting
-- Translating financial findings into actions
+- Action tracking
 
-Traditional dashboards are excellent at showing **what happened**.
+Traditional dashboards are effective at showing:
 
-FinSight AI explores how an agentic finance workflow can help move from:
+> **What happened?**
 
-**Data → Analysis → Insight → Decision → Action**
+FinSight AI explores how an agentic finance workflow can move further toward:
+
+> **Why did it happen?**
+
+and then:
+
+> **What could happen next?**
+
+and finally:
+
+> **What should management do about it?**
 
 ---
 
-# 🧠 FinSight AI Philosophy
+## 🧠 FinSight AI Decision Workflow
 
-The core idea behind FinSight is a management decision workflow:
+FinSight is designed around a financial investigation and decision-support workflow:
 
 ```text
-                    DETECT
-                       ↓
-                   QUANTIFY
-                       ↓
-               TRACE THE DRIVER
-                       ↓
-                    EXPLAIN
-                       ↓
-              ASSESS WHAT'S NEXT
-                       ↓
-                  RECOMMEND
-
-The objective is not simply to display financial KPIs.
-
-The objective is to connect financial evidence with business interpretation and management action.
-
-🤖 AI CFO Workflow
-
-The AI CFO layer follows a multi-step financial investigation workflow:
-
 Financial Signal
        ↓
-    Detect
+     Detect
        ↓
-   Quantify
+    Quantify
        ↓
-Trace the Driver
+ Trace the Driver
        ↓
-    Explain
+     Explain
        ↓
-  Recommend
+ Assess What’s Next
        ↓
-Route to Action
+   Recommend
+       ↓
+ Route to Action
+
+The goal is to connect financial evidence with business interpretation and management action.
+
+🤖 AI CFO
+
+The AI CFO layer brings together financial signals and analytical outputs to support management-oriented investigation.
+
+The workflow is:
+Detect
+  ↓
+Quantify
+  ↓
+Trace
+  ↓
+Explain
+  ↓
+Recommend
+  ↓
+Action
 
 For example:
 
-Budget Variance Detected
-          ↓
-Measure Financial Impact
-          ↓
-Identify Business Driver
-          ↓
+Budget Variance
+      ↓
+Financial Impact
+      ↓
+Business Driver
+      ↓
 Region
-   ↓
+      ↓
 Business Unit
-   ↓
+      ↓
 Department
-   ↓
+      ↓
 Cost Center
-   ↓
+      ↓
 GL Account
-          ↓
-Explain Variance
-          ↓
-Recommend Management Action
-          ↓
-Priority / Owner / Due Date
+      ↓
+Explanation
+      ↓
+Recommended Action
 
 This creates a bridge between:
 
-Financial Analysis → Decision → Accountability → Follow-up
+Financial Analysis → Decision → Accountability
 
-🏗️ Architecture
-                         ┌─────────────────────┐
-                         │    ERP / Financial  │
-                         │        Data         │
-                         └──────────┬──────────┘
-                                    ↓
-                         ┌─────────────────────┐
-                         │ Data Quality &      │
-                         │ Data Mapping        │
-                         └──────────┬──────────┘
-                                    ↓
-                  ┌─────────────────────────────────┐
-                  │      FINANCIAL INTELLIGENCE     │
-                  ├────────────┬───────────┬────────┤
-                  │    FP&A    │   Cash    │  Risk  │
-                  │  Variance  │ Liquidity │Anomaly │
-                  │    Cost    │ Working   │Detection│
-                  │  Drivers   │  Capital  │        │
-                  └────────────┴───────────┴────────┘
-                                    ↓
-                         ┌─────────────────────┐
-                         │ Forecasting &       │
-                         │ Scenario Planning   │
-                         └──────────┬──────────┘
-                                    ↓
-                         ┌─────────────────────┐
-                         │       AI CFO        │
-                         │                     │
-                         │ Detect → Quantify   │
-                         │ Trace → Explain     │
-                         │ Recommend → Act     │
-                         └──────────┬──────────┘
-                                    ↓
-                  ┌─────────────────────────────────┐
-                  │     MANAGEMENT DECISION LAYER  │
-                  ├────────────┬───────────┬────────┤
-                  │ Executive  │  Actions  │Reports │
-                  │   Brief    │  /Owners  │        │
-                  └────────────┴───────────┴────────┘
 🚀 Key Capabilities
-Module	What it does
-Executive Dashboard	Executive-level financial KPIs and performance overview
-Financial Performance	Revenue, COGS, Gross Profit, EBITDA, EBIT and PAT analysis
-Budget vs Actuals	Budget, Actual, Variance and favorable/unfavorable analysis
-Variance Drill-down	Trace financial movements through Region → Business Unit → Department → Cost Center → GL
-Cost Intelligence	Cost performance, unfavorable exposure and cost-driver analysis
-Forecasting & Planning	Revenue, cost and profitability forecasting
-What-if Scenarios	Scenario-based financial planning and sensitivity analysis
-Cash Flow Center	Cash generation, liquidity and working-capital analysis
-Risk & Anomaly Detection	Financial risk signals and unusual transaction detection
-AI CFO	Financial investigation, explanation and management recommendations
-Autonomous AI CFO	Extended AI CFO workflow for identifying and prioritizing financial signals
-AI CFO Executive Brief	Management synthesis across financial performance, liquidity, risk, forecast and actions
-AI CFO Action Center	Convert financial findings into prioritized management actions
-Reports Library	Executive and FP&A reporting packs
-Data Mapping	ERP-style financial data mapping and preparation
-Data Quality	Financial data validation and quality scoring
-📊 Financial Analytics
+
+| Module                       | What it does                                                                             |
+| ---------------------------- | ---------------------------------------------------------------------------------------- |
+| **Executive Dashboard**      | Executive-level financial KPIs and performance overview                                  |
+| **Financial Performance**    | Revenue, COGS, Gross Profit, EBITDA, EBIT and PAT analysis                               |
+| **Budget vs Actuals**        | Budget, Actual, Variance and favorable/unfavorable analysis                              |
+| **Variance Drill-down**      | Trace financial movements through Region → Business Unit → Department → Cost Center → GL |
+| **Cost Intelligence**        | Cost performance, unfavorable exposure and cost-driver analysis                          |
+| **Forecasting & Planning**   | Revenue, cost and profitability forecasting                                              |
+| **What-if Scenarios**        | Scenario-based financial planning and sensitivity analysis                               |
+| **Cash Flow Center**         | Cash generation, liquidity and working-capital analysis                                  |
+| **Risk & Anomaly Detection** | Financial risk signals and unusual transaction detection                                 |
+| **AI CFO**                   | Financial investigation, explanation and management recommendations                      |
+| **Autonomous AI CFO**        | Prototype workflow for proactively identifying and prioritizing financial signals        |
+| **AI CFO Executive Brief**   | Management synthesis across performance, liquidity, risk, forecast and actions           |
+| **AI CFO Action Center**     | Convert financial findings into prioritized management actions                           |
+| **Reports Library**          | Executive and FP&A reporting packs                                                       |
+| **ERP Connections**          | ERP-oriented connection and data workflow interface                                      |
+| **Data Mapping**             | Financial data mapping and preparation                                                   |
+| **Data Quality**             | Financial data validation and quality scoring                                            |
+
+
+Financial Analytics
 
 FinSight provides a broad FP&A analytics layer covering financial performance, profitability, liquidity and working capital.
 
@@ -287,10 +268,10 @@ FinSight includes a financial forecasting and planning layer.
 
 Users can configure:
 
-Forecast horizon
-Revenue assumptions
-Cost assumptions
-Planning scenario
+Forecast Horizon
+Revenue Assumptions
+Cost Assumptions
+Planning Scenario
 
 Supported planning scenarios include:
 
@@ -323,7 +304,7 @@ How could management assumptions affect future financial performance?
 
 Scenario analysis creates a bridge between:
 
-Forecast → Assumption → Scenario → Financial Impact
+Assumption → Scenario → Financial Impact
 
 💵 Cash & Liquidity
 
@@ -339,9 +320,9 @@ Payables
 Working Capital
 Liquidity Indicators
 
-The purpose is to connect profitability with liquidity and working-capital considerations.
+The purpose is to connect profitability, cash generation and working-capital considerations.
 
-The current implementation uses synthetic / ERP-style financial data rather than live banking or treasury connections.
+The current implementation uses synthetic / ERP-style financial data rather than live banking or treasury integrations.
 
 🚨 Risk & Anomaly Detection
 
@@ -353,35 +334,77 @@ Isolation Forest
 
 to identify transactions that may require further investigation.
 
-Anomaly detection is treated as a risk signal, not an automatic conclusion.
+Anomalies are treated as risk signals, not automatic conclusions.
 
 Business validation remains necessary before taking financial action.
 
 🧾 Data Quality
 
-FinSight includes a Data Quality layer to validate the financial dataset before analysis.
+FinSight includes a Data Quality layer to validate financial data before analytical processing.
 
-The objective is to ensure that downstream analytics are based on structurally valid financial data.
+The application provides data-quality validation and scoring to support confidence in downstream analysis.
 
-The application provides a data-quality score and validation checks before users rely on financial outputs.
+🔌 ERP Connections & Data Mapping
 
-📋 From Insight to Management Action
+FinSight includes an ERP-oriented data workflow designed around:
 
-FinSight does not stop at financial analysis.
+Data Connection → Mapping → Validation → Financial Analysis
 
-The AI CFO Action Center allows financial findings to be translated into management-oriented actions.
+The current project demonstrates this workflow using synthetic ERP-style financial data.
+
+Production ERP connectivity would require secure enterprise APIs, connectors, authentication, authorization and appropriate data governance.
+
+🤖 Autonomous AI CFO
+
+The Autonomous AI CFO module represents the direction of the project toward more proactive finance monitoring and decision support.
+
+The workflow is designed around:
+
+Financial Signal
+       ↓
+Detect
+       ↓
+Quantify
+       ↓
+Investigate
+       ↓
+Prioritize
+       ↓
+Recommend
+       ↓
+Management Action
+
+The current implementation is a prototype of an autonomous finance workflow, rather than a fully autonomous production finance system.
+
+Future versions can extend this toward continuous monitoring, automated alerts, investigation workflows and human-approved actions.
+
+📝 AI CFO Executive Brief
+
+FinSight includes an executive synthesis layer designed to bring together:
+
+Financial Performance
+Budget Signals
+Liquidity
+Risk
+Forecast Signals
+Management Actions
+
+The objective is to provide a consolidated management-oriented view rather than requiring executives to navigate every analytical module individually.
+
+📋 AI CFO Action Center
+
+FinSight can translate financial findings into management actions.
 
 Actions can include:
 
 Priority
-Business Area
+Area
 Owner
 Due Date
 Issue / Finding
-Action Status
+Status
 
 Example workflow:
-
 Financial Finding
        ↓
 Business Impact
@@ -396,26 +419,13 @@ Due Date
        ↓
 Status
 
-This creates a bridge between:
+This connects:
 
-Insight → Decision → Accountability
-
-📝 AI CFO Executive Brief
-
-FinSight includes an executive synthesis layer designed to bring together:
-
-Financial performance
-Budget signals
-Liquidity
-Risk
-Forecast signals
-Management actions
-
-The objective is to provide a consolidated management-oriented view rather than requiring executives to navigate every analytical module individually.
+Insight → Decision → Accountability → Follow-up
 
 📑 Reports Library
 
-The application includes a reporting layer covering areas such as:
+The application includes reporting capabilities covering areas such as:
 
 CFO Monthly Business Review
 Executive KPI Pack
@@ -439,7 +449,37 @@ What is the revenue outlook?
 
 The intended workflow is:
 
-Natural Language Question
+This connects:
+
+Insight → Decision → Accountability → Follow-up
+
+📑 Reports Library
+
+The application includes reporting capabilities covering areas such as:
+
+CFO Monthly Business Review
+Executive KPI Pack
+Budget vs Actual Pack
+Regional Performance
+Cost Intelligence Pack
+Risk & Anomaly Register
+Forecast & Scenario Pack
+Management Action Register
+🤖 Natural-Language Finance Questions
+
+FinSight is designed to support finance-oriented questions such as:
+
+Why is spending above budget?
+
+Which cost drivers need attention?
+
+Which financial transactions look unusual?
+
+What is the revenue outlook?
+
+The intended workflow is:
+
+Natural-Language Question
           ↓
 Financial Intent
           ↓
@@ -450,20 +490,21 @@ Financial Evidence
 Business Interpretation
           ↓
 Management Recommendation
-📈 Analytics Workflow
+
+Analytics Workflow
 1. Financial Data
 
-Synthetic ERP-style financial data is used as the foundation for the project.
+Synthetic ERP-style financial data is used as the foundation of the application.
 
-The dataset contains financial transactions and management-level financial measures.
+The data contains financial transactions and management-level financial measures.
 
 2. Data Preparation & Validation
 
 Financial data is prepared and validated before analytical processing.
 
-3. SQL Analysis
+3. SQL & Python Analytics
 
-SQL / Python analytical workflows calculate and analyze:
+Analytical workflows calculate and analyze:
 
 Budget
 Actual
@@ -472,6 +513,7 @@ Variance %
 Business-unit performance
 Cost drivers
 Financial trends
+Profitability measures
 4. Machine Learning
 
 Isolation Forest is used to identify potentially unusual financial transactions.
@@ -484,7 +526,7 @@ The forecasting layer is intended to demonstrate the analytical workflow rather 
 
 6. Financial Intelligence
 
-The system combines financial metrics and analytical outputs across:
+The application brings together financial analysis across:
 
 FP&A
 Profitability
@@ -492,9 +534,10 @@ Cash
 Working Capital
 Risk
 Forecasting
+Cost Management
 7. AI CFO Decision Support
 
-The AI CFO layer organizes financial signals into:
+Financial signals are organized into:
 
 Finding
 Evidence
@@ -514,17 +557,17 @@ Machine Learning
 Scikit-learn
 Isolation Forest
 Regression-based Forecasting
-Visualization & Application
+Application & Visualization
 Streamlit
 Plotly
 Matplotlib
 AI / Agentic Workflow
-Agentic AI concepts
-Finance-oriented routing
-Structured reasoning
-Financial decision-support workflows
-Finance & Business
-FP&A
+Agentic AI Concepts
+Finance-Oriented Routing
+Structured Reasoning
+Financial Decision Support
+Finance & FP&A
+Financial Planning & Analysis
 Budgeting
 Forecasting
 Variance Analysis
@@ -536,9 +579,10 @@ Financial Risk
 Management Reporting
 Product / Project Management
 Business Problem Definition
+Product Workflow Design
 Analytical Workflow Design
-Management Action Workflows
-Priority / Owner / Status Tracking
+Management Action Tracking
+Priority / Owner / Status
 Finance-to-Technology Translation
 📊 Dataset
 
@@ -548,40 +592,67 @@ No confidential employer, client or customer data is used.
 
 The dataset contains financial and business dimensions including:
 
-Transaction IDs
-Dates
-Fiscal Years
-Fiscal Periods
-Regions
-Countries
-Legal Entities
-Business Units
-Departments
-Cost Centers
-Profit Centers
-GL Accounts
-Cost Categories
-Budgets
-Actuals
+Transaction ID
+Date
+Fiscal Year
+Fiscal Period
+Region
+Country
+Legal Entity
+Business Unit
+Department
+Cost Center
+Profit Center
+GL Account
+Cost Category
+Cost Type
+Line Type
+Currency
+FX Rate
 Revenue
+Budget
+Actual
+Variance
+Variance %
+Profit
 COGS
 Gross Profit
+Gross Margin
 EBITDA
+EBITDA Margin
+D&A
 EBIT
+Interest / Finance Cost
+EBT
+Tax
 PAT
-Cash Flow
+PAT Margin
+Cash Inflow
+Cash Outflow
+Net Cash Flow
+Opening Cash
+Closing Cash
 Receivables
 Inventory
 Payables
-Debt
-Assets
-Liabilities
-Equity
+Other Current Assets
+Other Current Liabilities
+Short-Term Debt
+Long-Term Debt
+Total Debt
+Current Assets
+Current Liabilities
+Property Plant & Equipment
+Total Assets
+Total Liabilities
+Total Equity
 Working Capital
-Financial Variance
+Net Debt
+Net Working Capital
+Balance Sheet Check
 🌎 Business Scenario
 
-The synthetic dataset contains intentionally designed financial patterns to demonstrate FP&A investigation workflows.
+The synthetic dataset intentionally contains realistic financial patterns for demonstrating FP&A investigation workflows.
 
 Examples include:
 
@@ -593,7 +664,7 @@ Middle East → Marketing variance
 
 The dataset also includes unusual transactions for machine-learning anomaly detection.
 
-These patterns are designed for demonstration purposes and do not represent real company performance.
+These patterns are created for demonstration purposes and do not represent real company performance.
 
 📸 Project Preview
 Executive FP&A Dashboard
@@ -606,79 +677,291 @@ Revenue Forecast
 
 AI CFO
 
-The AI CFO workflow is designed to connect financial signals with evidence, explanation and recommended management action.
+🎥 End-to-End FinSight AI Workflow
 
-🎥 Product Demonstration
+The complete application brings together:
 
-The complete FinSight AI workflow demonstrates:
+Analytics Workflow
+1. Financial Data
 
-ERP / Financial Data
-        ↓
-Data Quality
-        ↓
-Executive Dashboard
-        ↓
-Financial Performance
-        ↓
-Budget vs Actual
-        ↓
-Root Cause Investigation
-        ↓
-Cost Intelligence
-        ↓
+Synthetic ERP-style financial data is used as the foundation of the application.
+
+The data contains financial transactions and management-level financial measures.
+
+2. Data Preparation & Validation
+
+Financial data is prepared and validated before analytical processing.
+
+3. SQL & Python Analytics
+
+Analytical workflows calculate and analyze:
+
+Budget
+Actual
+Variance
+Variance %
+Business-unit performance
+Cost drivers
+Financial trends
+Profitability measures
+4. Machine Learning
+
+Isolation Forest is used to identify potentially unusual financial transactions.
+
+5. Forecasting
+
+A baseline regression-based forecasting approach generates revenue projections.
+
+The forecasting layer is intended to demonstrate the analytical workflow rather than represent a production forecasting model.
+
+6. Financial Intelligence
+
+The application brings together financial analysis across:
+
+FP&A
+Profitability
+Cash
+Working Capital
+Risk
 Forecasting
-        ↓
-What-if Scenarios
-        ↓
-Cash & Liquidity
-        ↓
-Risk & Anomaly Detection
-        ↓
-AI CFO
-        ↓
-Executive Brief
-        ↓
+Cost Management
+7. AI CFO Decision Support
+
+Financial signals are organized into:
+
+Finding
+Evidence
+Business Impact
+Explanation
+Recommendation
+Priority
 Management Action
-        ↓
-Reports
-🔗 Project Links
-🌐 Live Streamlit Application
+🛠️ Technology Stack
+Programming & Analytics
+Python
+Pandas
+NumPy
+SQL
+SQLite
+Machine Learning
+Scikit-learn
+Isolation Forest
+Regression-based Forecasting
+Application & Visualization
+Streamlit
+Plotly
+Matplotlib
+AI / Agentic Workflow
+Agentic AI Concepts
+Finance-Oriented Routing
+Structured Reasoning
+Financial Decision Support
+Finance & FP&A
+Financial Planning & Analysis
+Budgeting
+Forecasting
+Variance Analysis
+P&L Analysis
+Cost Management
+Cash Flow
+Working Capital
+Financial Risk
+Management Reporting
+Product / Project Management
+Business Problem Definition
+Product Workflow Design
+Analytical Workflow Design
+Management Action Tracking
+Priority / Owner / Status
+Finance-to-Technology Translation
+📊 Dataset
 
-https://finsight-ai-agentic-fpa-copilot-tzybvd6dnobwwraiwwcyjd.streamlit.app
+The project uses a synthetic ERP-style financial dataset.
 
-💻 GitHub Repository
+No confidential employer, client or customer data is used.
 
-https://github.com/Ishans04/finsight-ai-agentic-fpa-copilot
+The dataset contains financial and business dimensions including:
 
-📓 Kaggle Notebook
+Transaction ID
+Date
+Fiscal Year
+Fiscal Period
+Region
+Country
+Legal Entity
+Business Unit
+Department
+Cost Center
+Profit Center
+GL Account
+Cost Category
+Cost Type
+Line Type
+Currency
+FX Rate
+Revenue
+Budget
+Actual
+Variance
+Variance %
+Profit
+COGS
+Gross Profit
+Gross Margin
+EBITDA
+EBITDA Margin
+D&A
+EBIT
+Interest / Finance Cost
+EBT
+Tax
+PAT
+PAT Margin
+Cash Inflow
+Cash Outflow
+Net Cash Flow
+Opening Cash
+Closing Cash
+Receivables
+Inventory
+Payables
+Other Current Assets
+Other Current Liabilities
+Short-Term Debt
+Long-Term Debt
+Total Debt
+Current Assets
+Current Liabilities
+Property Plant & Equipment
+Total Assets
+Total Liabilities
+Total Equity
+Working Capital
+Net Debt
+Net Working Capital
+Balance Sheet Check
+🌎 Business Scenario
 
-https://www.kaggle.com/code/isharma04/finsight-ai-agentic-fpa-copilot
+The synthetic dataset intentionally contains realistic financial patterns for demonstrating FP&A investigation workflows.
 
-📁 Repository Structure
-finsight-ai-agentic-fpa-copilot/
-│
-├── README.md
-├── ARCHITECTURE.md
-├── PRD.md
-├── requirements.txt
-│
-├── app.py
-├── agent.py
-├── llm.py
-├── tools.py
-├── pm_actions.py
-│
-├── synthetic_erp_financials.csv
-│
-├── notebooks/
-│   └── finsight_ai_agentic_fpa_copilot.ipynb
-│
-└── images/
-    ├── executive-dashboard.png
-    ├── business-unit-variance.png
-    ├── anomaly-detection.png
-    ├── revenue-forecast.png
-    └── ai-copilot.png
+Examples include:
+
+North America → Cloud Infrastructure overspend
+Asia Pacific → Professional Services spike
+Europe → Travel underspend
+India → Relatively stable Payroll
+Middle East → Marketing variance
+
+The dataset also includes unusual transactions for machine-learning anomaly detection.
+
+These patterns are created for demonstration purposes and do not represent real company performance.
+
+📸 Project Preview
+Executive FP&A Dashboard
+
+Business Unit Budget Variance
+
+ML-Based Financial Anomaly Detection
+
+Revenue Forecast
+
+AI CFO
+
+🎥 End-to-End FinSight AI Workflow
+
+The complete application brings together:
+
+Example Management Investigation
+Scenario
+
+A business unit shows an unfavorable cost variance.
+
+Traditional workflow
+
+Example Management Investigation
+Scenario
+
+A business unit shows an unfavorable cost variance.
+
+Traditional workflow
+
+FinSight workflow
+
+Variance Detected
+       ↓
+Financial Impact Quantified
+       ↓
+Driver Identified
+       ↓
+Region / BU / Department / Cost Center / GL
+       ↓
+Business Explanation
+       ↓
+Recommendation
+       ↓
+Priority / Owner / Due Date
+       ↓
+Management Action
+
+The goal is to reduce the distance between financial information and business decision-making.
+
+Finance + Data + AI + Product Management
+
+FinSight AI brings together four disciplines:
+
+Finance
+
+Understanding financial statements, FP&A processes, budgeting, forecasting, variance analysis, cost management, cash flow and management reporting.
+
+Data
+
+Using Python, SQL, analytics, machine learning and visualization to transform financial data into evidence.
+
+AI
+
+Using agentic concepts and structured reasoning to connect financial signals with business interpretation and decision support.
+
+Product / Project Management
+
+Designing workflows that connect business requirements, analytics, management actions, ownership and follow-up.
+
+The project therefore demonstrates:
+
+Finance + Data + AI + Business Delivery
+
+🎯 Why FinSight AI?
+
+Traditional financial reporting often answers:
+
+What happened?
+
+FinSight explores the next questions:
+
+Why did it happen?
+
+What could happen next?
+
+What should management look at?
+
+What action should be considered?
+
+The project focuses on connecting:
+
+Financial Data → Evidence → Insight → Decision → Action
+
+📁 Project Resources
+
+The repository contains the FinSight AI application, analytical components, financial dataset, notebooks and project documentation.
+
+Supporting documentation includes:
+
+Application implementation
+Financial analytics
+Agentic workflow
+Product requirements
+Architecture
+Synthetic ERP-style dataset
+Kaggle implementation
 ⚠️ Current Scope & Limitations
 
 FinSight AI is a portfolio / analytical prototype, not a production financial system.
@@ -688,10 +971,13 @@ Current limitations include:
 Uses synthetic ERP-style financial data
 Forecasting uses a baseline analytical model
 ML anomaly results require business validation
-AI recommendations are decision-support outputs and should not be treated as automated financial decisions
-Current treasury / cash analysis is based on synthetic financial data rather than live banking integrations
-Production deployment would require enterprise authentication, authorization, governance, monitoring and audit controls
-Production ERP integration would require secure APIs / connectors and appropriate data governance
+AI recommendations are decision-support outputs
+AI recommendations should not be treated as automated financial decisions
+Cash and treasury analysis is based on synthetic financial data rather than live banking integrations
+ERP connectivity is demonstrated as an application workflow rather than a production enterprise integration
+Production deployment would require enterprise authentication and authorization
+Production ERP integration would require secure APIs / connectors
+Enterprise deployment would require governance, monitoring and audit controls
 Autonomous external-system execution is not currently implemented
 
 These limitations are intentionally documented to distinguish the prototype from a production enterprise finance platform.
@@ -700,8 +986,9 @@ These limitations are intentionally documented to distinguish the prototype from
 Phase 1 — Advanced AI
 LLM-powered natural-language finance interface
 Natural-language-to-SQL with query validation
-Financial reasoning with stronger contextual understanding
+Stronger financial reasoning
 Explainable AI recommendations
+Context-aware financial investigation
 Phase 2 — Enterprise Integration
 ERP API integrations
 Banking / treasury integrations
@@ -723,35 +1010,9 @@ Advanced scenario modeling
 Working-capital forecasting
 Cash forecasting
 Profitability analytics
-Multi-entity / multi-currency analytics
-🎯 Why FinSight AI?
-
-Traditional financial reporting often answers:
-
-What happened?
-
-FinSight explores the next layer:
-
-Why did it happen?
-
-And then:
-
-What could happen next?
-
-And finally:
-
-What should management do about it?
-
-The project therefore combines:
-
-Finance + Data + AI + Business Decision Support
-
-rather than treating financial analytics as a standalone reporting exercise.
-
+Multi-entity analytics
+Multi-currency analytics
 💼 Skills Demonstrated
-
-This project demonstrates practical work across:
-
 Finance & FP&A
 Financial Planning & Analysis
 Budgeting
@@ -767,6 +1028,7 @@ Data Analytics
 Python
 SQL
 Pandas
+NumPy
 Data Transformation
 Financial KPI Analysis
 Data Visualization
@@ -784,9 +1046,9 @@ Requirements-Oriented Thinking
 Management Action Workflows
 Priority / Owner / Status Tracking
 Finance-to-Technology Translation
-👤 About the Project
+👤 About
 
-FinSight AI represents my interest in combining:
+FinSight AI represents my work at the intersection of:
 
 Finance & FP&A + Data Analytics + Python + SQL + AI + Product Management
 
@@ -802,7 +1064,7 @@ DECISION
   ↓
 ACTION
 
-My goal is to bridge the gap between finance domain knowledge, analytical technology and business decision-making.
+The broader objective is to bridge the gap between finance domain knowledge, analytical technology and business decision-making.
 
 📄 Disclaimer
 
@@ -816,10 +1078,29 @@ Production use would require appropriate data governance, security, validation, 
 
 ⭐ Explore FinSight AI
 
-If you are interested in the intersection of:
+🚀 Live Application:
+https://finsight-ai-agentic-fpa-copilot-tzybvd6dnobwwraiwwcyjd.streamlit.app
 
-FP&A × Finance Transformation × Data Analytics × AI × Product Management
+💻 GitHub:
+https://github.com/Ishans04/finsight-ai-agentic-fpa-copilot
 
-feel free to explore the project, try the live application and review the implementation on Kaggle.
-                       ↓
-                ROUTE TO ACTION
+📓 Kaggle:
+https://www.kaggle.com/code/isharma04/finsight-ai-agentic-fpa-copilot
+
+Finance × Data × AI × Product Management
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ 
