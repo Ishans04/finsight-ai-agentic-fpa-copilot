@@ -17,6 +17,30 @@ https://github.com/Ishans04/finsight-ai-agentic-fpa-copilot
 📓 **Kaggle Notebook:**  
 https://www.kaggle.com/code/isharma04/finsight-ai-agentic-fpa-copilot
 
+## 🎥 Product Demo
+
+[▶️ Watch the Full FinSight AI Product Demo](https://github.com/Ishans04/finsight-ai-agentic-fpa-copilot/blob/main/FinSight_AI_Master_Demo_All_Sections.mp4)
+
+A complete walkthrough of FinSight AI — an Agentic FP&A & ERP Analytics Copilot and AI CFO prototype.
+
+The demo covers:
+
+- Executive Dashboard
+- AI CFO
+- Financial Performance
+- Budget vs Actuals
+- Variance Drill-down
+- Forecasting & Planning
+- What-if Scenarios
+- Cash & Liquidity
+- Risk & Anomaly Detection
+- Cost Intelligence
+- AI CFO Executive Brief
+- AI CFO Action Center
+- Reports Library
+- ERP Connections
+- Data Mapping
+- Data Quality
 ---
 
 ## 📌 Project Overview
